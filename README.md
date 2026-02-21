@@ -1,7 +1,7 @@
-<table>
+<table width="830">
 <tr><td>
 <h1 align="center">Kotoleaf</h1>
-<img width="300" height="1">
+<img width="400" height="1">
 <pre align="center">
 Leaves between our words<br>
 Roots deepening below<br>
@@ -9,7 +9,7 @@ Silence speaks at last<br>
 </pre>
 </td><td>
 <h1 align="center">言リーフ</h1>
-<img width="300" height="1">
+<img width="400" height="1">
 <pre align="center">
 静　根　言
 か　が　の

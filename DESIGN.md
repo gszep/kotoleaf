@@ -10,7 +10,7 @@ Kotoleaf is an in-house tool that brings the best of Flitto and the broader simu
 
 1. **The roots, not the leaves, are the goal.** Every feature should strengthen the root network -- shared vocabulary, cultural understanding, mutual trust -- between participants. Translation is the means, not the end.
 
-2. **Privacy where it matters.** Meeting audio is sent to Deepgram for ASR; transcript text is sent to DeepL/Google (translation) and Anthropic (contextual intelligence) for processing -- all are SOC 2 Type II and GDPR compliant. Vocabulary data, institutional glossary, and growth state remain on ChibaTech's GCP infrastructure. The default is to keep only vocabulary growth, discarding transcripts.
+2. **Privacy where it matters.** Meeting audio is sent to Deepgram for ASR; transcript text is sent to Google Cloud Translation (real-time NMT) and Anthropic (contextual intelligence) for processing -- all are SOC 2 Type II and GDPR compliant. Vocabulary data, institutional glossary, and growth state remain on ChibaTech's GCP infrastructure. The default is to keep only vocabulary growth, discarding transcripts.
 
 3. **Nemawashi-first design.** The system is designed around 1-to-1 bilingual conversation (nemawashi) as the primary use case. If it works beautifully for two people building consensus, everything else scales from there.
 
@@ -53,7 +53,7 @@ Three processing layers named for the metaphor: Ear (perception), Mind (understa
 |  +--[ Kotoleaf Server (no GPU) ]----------------------------------+ |
 |  |                                                                | |
 |  |  Ear ────────> Mind ────────> Tongue                           | |
-|  |  - Deepgram     - Comprehension    - DeepL / Google NMT        | |
+|  |  - Deepgram     - Comprehension    - Google Cloud NMT          | |
 |  |    Nova-3 API     model              (real-time translation)   | |
 |  |    (ASR +       - Growth level     - Claude Haiku 4.5          | |
 |  |    diarization    calculator         (contextual correction    | |
@@ -73,7 +73,7 @@ Three processing layers named for the metaphor: Ear (perception), Mind (understa
 |                                                                     |
 |  +--[ Google Meet Bot ]--+    +--[ API Providers ]---------------+  |
 |  | Headless browser /     |    | Deepgram Nova-3 (streaming ASR) |  |
-|  | MeetingBaaS / Attendee |    | DeepL / Google (real-time NMT)  |  |
+|  | MeetingBaaS / Attendee |    | Google Cloud Translation (NMT)  |  |
 |  | Captures audio         |    | Anthropic Claude Haiku 4.5 /    |  |
 |  | Routes to Ear          |    |   Sonnet 4.6 (intelligence)     |  |
 |  +-----------------------+    +---------------------------------+  |
@@ -113,7 +113,7 @@ The Mind's output for each term is a decision: **surface** (include in this part
 Produces personalised output for each participant.
 
 - **Translation** (hybrid: dedicated NMT + LLM) -- a two-tier approach tuned for the competing demands of speed and nuance:
-  - **Tier 1 (real-time subtitles)**: DeepL API or Google Cloud Translation v3 for the primary subtitle stream. Dedicated NMT delivers ~50-100ms latency and strong EN-JA quality at ~$20-25/million characters. This tier covers the majority of straightforward translation.
+  - **Tier 1 (real-time subtitles)**: Google Cloud Translation v3 (NMT or Gemini-powered TLLM) for the primary subtitle stream. Dedicated NMT delivers ~50-100ms latency at $20/million characters, with a free tier of 500K chars/month. The newer TLLM model offers higher quality at the same effective price. Google Cloud's Adaptive Translation can be steered with example sentence pairs for consistent register/tone. This tier covers the majority of straightforward translation.
   - **Tier 2 (contextual enrichment)**: Claude Haiku 4.5 for glossary-aware correction, cultural annotations, misunderstanding explanations, and interleaving decisions. Each segment is sent with the system prompt containing: ChibaTech glossary, per-meeting session glossary, participant relationship context, recent conversation history, and register guidance. Claude's contextual awareness produces more natural translations for nuanced content than dedicated NMT.
   
   The hybrid approach is motivated by latency constraints: independent benchmarks (llm-benchmarks.com, Feb 2026) show Claude Haiku 4.5 averaging ~640ms time-to-first-token with total call latency of 1.5-2 seconds -- acceptable for enrichment overlays but too slow for primary subtitle delivery. Dedicated NMT APIs are 10-20x faster. Anthropic prompt caching (90% cost reduction on repeated system prompts) keeps the Claude tier cost-effective.
@@ -214,19 +214,23 @@ The default (vocab only) is the most privacy-preserving option while still servi
 
 ## AI Provider Strategy
 
-API-first architecture using three providers: Deepgram (ASR), DeepL or Google Cloud Translation (real-time NMT), and Anthropic (contextual intelligence). Total estimated cost: **~$1.00-1.50 per hour of meeting**.
+API-first architecture using three providers: Deepgram (ASR), Google Cloud Translation (real-time NMT), and Anthropic (contextual intelligence). Total estimated cost: **~$1.00-1.50 per hour of meeting**.
 
 | Task | Provider | Model | Cost | Latency |
 |------|----------|-------|------|---------|
 | Speech recognition + diarization + language detection | Deepgram | Nova-3 multilingual | ~$0.67/hr | <300ms streaming |
-| Real-time subtitle translation | DeepL or Google Cloud Translation v3 | NMT | ~$0.10-0.15/hr | ~50-100ms |
+| Real-time subtitle translation | Google Cloud Translation v3 | NMT (or TLLM) | ~$0.10-0.15/hr | ~50-100ms |
 | Contextual correction + interleaving decisions | Anthropic | Claude Haiku 4.5 | ~$0.15-0.35/hr | ~800-1500ms (with prompt caching) |
 | Misunderstanding detection | Anthropic | Claude Haiku 4.5 (inline with correction) | included above | inline |
 | Cultural briefing notes | Anthropic | Claude Sonnet 4.6 | ~$0.01/session | off critical path |
 | Meeting materials analysis | Anthropic | Claude Sonnet 4.6 | per-meeting, negligible | pre-meeting |
 | SRS card generation | Anthropic | Claude Haiku 4.5 | ~$0.06/meeting | post-meeting |
 
-**Why hybrid translation?** Claude Haiku 4.5 averages ~640ms time-to-first-token (llm-benchmarks.com, Feb 2026, n=236) with total call latency of 1.5-2 seconds. Dedicated NMT APIs (DeepL, Google) deliver ~50-100ms, which is essential for real-time subtitle display. The LLM tier handles what NMT cannot: glossary-aware correction, cultural annotations, and the interleaving intelligence that makes Kotoleaf more than a translator. DeepL is preferred for EN-JA quality; Google Cloud Translation is a strong alternative with a generous free tier (500K chars/month).
+**Why hybrid translation?** Claude Haiku 4.5 averages ~640ms time-to-first-token (llm-benchmarks.com, Feb 2026, n=236) with total call latency of 1.5-2 seconds. Google Cloud Translation NMT delivers ~50-100ms, which is essential for real-time subtitle display. The LLM tier handles what NMT cannot: glossary-aware correction, cultural annotations, and the interleaving intelligence that makes Kotoleaf more than a translator.
+
+**Why Google Cloud Translation?** ChibaTech is a Google Workspace organisation, so Google Cloud Translation shares billing, IAM, and Cloud Storage with the rest of the GCP stack. NMT pricing ($20/M chars) is competitive, with a free tier of 500K chars/month. The Gemini-powered TLLM model offers higher quality at the same effective price. Adaptive Translation can be steered with example sentence pairs for consistent register -- a lighter-weight customisation path than training custom models. Google explicitly does not store or train on API-submitted text.
+
+**Note on Google Cloud Translation models**: The NMT model is fastest and cheapest ($20/M chars input). The TLLM model (Gemini-powered, $10/M input + $10/M output) provides higher quality with slightly higher latency -- still well under 500ms for short text. Start with NMT for MVP; upgrade to TLLM if quality gains justify the marginal latency increase. Adaptive Translation ($25/M input + $25/M output) can be steered with up to 5 reference sentence pairs per request for consistent register.
 
 **Note on Anthropic prompt caching**: System prompts (glossary, context, instructions) are cached for 90% cost reduction on repeated calls. This is essential for keeping the Claude tier affordable at subtitle-generation frequency (~10 calls/minute).
 
@@ -234,7 +238,7 @@ API-first architecture using three providers: Deepgram (ASR), DeepL or Google Cl
 
 **Note on Gemini**: Gemini may be added later for meeting materials ingestion if 1M token context or multimodal processing (slides with images) is needed. Not required for MVP.
 
-**Note on privacy**: Meeting audio is sent to Deepgram (SOC 2 Type II, HIPAA, GDPR compliant). Transcript text is sent to DeepL/Google and Anthropic. Vocabulary data, institutional glossary, and growth state remain on ChibaTech's GCP infrastructure. This is a deliberate trade-off: API providers deliver code-switching, accent robustness, and translation quality that would take years to build self-hosted.
+**Note on privacy**: Meeting audio is sent to Deepgram (SOC 2 Type II, HIPAA, GDPR compliant). Transcript text is sent to Google Cloud Translation and Anthropic. Vocabulary data, institutional glossary, and growth state remain on ChibaTech's GCP infrastructure. This is a deliberate trade-off: API providers deliver code-switching, accent robustness, and translation quality that would take years to build self-hosted.
 
 ## Tech Stack
 
@@ -244,7 +248,7 @@ API-first architecture using three providers: Deepgram (ASR), DeepL or Google Cl
 | Real-time transport | LiveKit (WebRTC) or raw WebSocket via FastAPI | Self-hosted on Cloud Run / Fly.io, or LiveKit Cloud |
 | Backend API | FastAPI (Python, async) | GCP Cloud Run |
 | ASR + diarization + LID | Deepgram Nova-3 multilingual | Deepgram API (streaming WebSocket) |
-| Real-time translation | DeepL API or Google Cloud Translation v3 | DeepL / Google API |
+| Real-time translation | Google Cloud Translation v3 (NMT / TLLM) | Google Cloud API |
 | Contextual intelligence | Claude Haiku 4.5 / Claude Sonnet 4.6 | Anthropic API |
 | User DB / Vocab / SRS | Firestore (or Supabase/Postgres for stronger relational queries) | GCP / Supabase Cloud |
 | Glossary DB | Firestore (or Supabase/Postgres) | GCP / Supabase Cloud |
@@ -275,7 +279,7 @@ Scaling is handled by Deepgram and Anthropic's infrastructure, not ours. No GPU 
 
 These are known hard problems that the design must account for:
 
-- **Word order (SOV vs SVO)** -- Japanese puts the verb at the end. JA-to-EN translation requires buffering most of a clause before producing grammatical English. Both DeepL and Claude handle this natively through their understanding of both languages, buffering context as needed before producing translations. No manual buffer configuration required.
+- **Word order (SOV vs SVO)** -- Japanese puts the verb at the end. JA-to-EN translation requires buffering most of a clause before producing grammatical English. Both Google Cloud Translation and Claude handle this natively through their understanding of both languages, buffering context as needed before producing translations. No manual buffer configuration required.
 - **Subject omission** -- Japanese frequently drops subjects. The Mind layer uses conversation context to infer subjects.
 - **Honorifics (keigo)** -- Three levels of politeness with no direct English equivalent. The Mind layer uses social context from the meeting setup to guide appropriate register.
 - **Code-switching** -- ChibaTech meetings frequently mix EN and JA in single sentences. Deepgram Nova-3's multilingual mode (`language=multi`) provides native code-switching support with per-word language tags, resolving what was previously the hardest unsolved problem in the pipeline. Feb 2026 improvements reduced code-switching WER by ~21%. No competing API (AssemblyAI, Google Chirp 2, Azure Speech, OpenAI) currently matches Deepgram's per-word EN-JA code-switching capability.
@@ -287,8 +291,8 @@ Key capabilities adapted from the commercial landscape:
 
 | Feature | Inspired By | Kotoleaf Adaptation |
 |---------|------------|--------------------|
-| Context-buffered translation | Flitto (cross-contextual inference) | DeepL real-time translation + Claude contextual correction with conversation history in system prompt |
-| Two-tier translation + correction | Flitto (2-stage correction system) | DeepL for speed + Claude Haiku 4.5 for glossary-aware correction and cultural context injection |
+| Context-buffered translation | Flitto (cross-contextual inference) | Google Cloud Translation for real-time NMT + Claude contextual correction with conversation history in system prompt |
+| Two-tier translation + correction | Flitto (2-stage correction system) | Google NMT/TLLM for speed + Claude Haiku 4.5 for glossary-aware correction and cultural context injection |
 | Institutional glossary | Flitto (hyper-personalisation), Palabra (glossary API) | Local glossary from Workspace/GitHub/Slack + per-meeting materials |
 | QR-code access | Flitto (no-install audience access) | Web app, no install, Google SSO |
 | Glossary-aware speech recognition | Palabra AI | Deepgram keyword boosting + Claude glossary-aware translation |
@@ -306,7 +310,7 @@ The simplest thing that is useful: two people, one conversation, interleaved und
 - Web app with subtitle bar
 - 1-to-1 mode only (2 participants)
 - Deepgram Nova-3 multilingual streaming ASR with code-switching
-- DeepL API for real-time subtitle translation (~50-100ms)
+- Google Cloud Translation v3 for real-time subtitle translation (~50-100ms)
 - Claude Haiku 4.5 for contextual correction + interleaving decisions
 - Cold-start Seedling for everyone (full interleaving)
 - Google SSO login
@@ -359,7 +363,7 @@ The API-first approach eliminates most licensing concerns:
 |------------|---------|------|
 | `py-fsrs` | MIT | No restrictions |
 | Deepgram Nova-3 | Commercial API | SOC 2 Type II, HIPAA, GDPR. Data processing agreement available. |
-| DeepL API | Commercial API | GDPR compliant. Pro plan required for API access. |
+| Google Cloud Translation | Commercial API | GDPR compliant. Data not stored or used for training. Free tier 500K chars/month. |
 | Anthropic Claude | Commercial API | SOC 2, responsible AI usage policy. |
 | LiveKit | Apache-2.0 | Self-hosted or LiveKit Cloud. No restrictions on self-hosted. |
 | Playwright | Apache-2.0 | No restrictions (only needed if building custom Meet bot). |
@@ -404,8 +408,10 @@ The API-first approach eliminates most licensing concerns:
 - Zoom RTMS (GA, official real-time media streams): https://developers.zoom.us/docs/rtms/
 
 ### Translation APIs
-- DeepL API: https://www.deepl.com/en/pro-api
-- Google Cloud Translation v3: https://cloud.google.com/translate/pricing
+- Google Cloud Translation v3: https://cloud.google.com/translate/docs/overview
+- Google Cloud Translation pricing: https://cloud.google.com/translate/pricing
+- Google Cloud Translation glossaries: https://cloud.google.com/translate/docs/advanced/glossary
+- Google Cloud Adaptive Translation: https://cloud.google.com/translate/docs/advanced/adaptive-translation
 - LLM translation benchmarks (llm-benchmarks.com): https://llm-benchmarks.com/models/anthropic/claudehaiku4520251001
 
 ### Real-Time Infrastructure

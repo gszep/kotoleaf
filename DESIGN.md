@@ -53,7 +53,7 @@ Three processing layers named for the metaphor: Ear (perception), Mind (understa
 |  +--[ Kotoleaf Server ]-----------------------------------------+|
 |  |                                                              ||
 |  |  Ear ────────> Mind ────────> Tongue                         ||
-|  |  - faster-whisper   - Comprehension    - NLLB/NLLW           ||
+|  |  - faster-whisper   - Comprehension    - NLLB                ||
 |  |  - Silero VAD         model            - Claude (correction) ||
 |  |  - Sortformer       - Growth level     - Interleaver         ||
 |  |    diarization        calculator       - Per-user filter     ||
@@ -71,9 +71,10 @@ Three processing layers named for the metaphor: Ear (perception), Mind (understa
 |                 +--------------------+  +------------------+    |
 |                                                                  |
 |  +--[ Google Meet Bot ]--+                                       |
-|  | Joins Meet calls      |                                       |
-|  | Captures audio        |                                       |
-|  | Routes to Ear         |                                       |
+|  | Headless browser       |                                       |
+|  | (Playwright)           |                                       |
+|  | Captures audio         |                                       |
+|  | Routes to Ear          |                                       |
 |  +-----------------------+                                       |
 +------------------------------------------------------------------+
 ```
@@ -83,11 +84,11 @@ Three processing layers named for the metaphor: Ear (perception), Mind (understa
 Captures live audio and converts it to text with speaker attribution.
 
 - **Voice Activity Detection** (Silero VAD) -- reduces compute when nobody is speaking
-- **Speech Recognition** (faster-whisper, large-v3-turbo) -- multilingual ASR, 99+ languages, runs on GPU
-- **Speaker Diarization** (Streaming Sortformer) -- identifies who is speaking
+- **Speech Recognition** (faster-whisper, large-v3-turbo) -- multilingual ASR, 99+ languages, runs on GPU. Whisper is chunk-based (not natively streaming); a streaming wrapper (Whisper-Streaming / SimulStreaming) processes audio incrementally, yielding expected subtitle latency of **1-3 seconds**. This is the best self-hosted option for bilingual EN+JA -- streaming-native models (NVIDIA Parakeet-TDT, Canary) offer lower latency but do not support Japanese.
+- **Speaker Diarization** (Streaming Sortformer, `nvidia/diar_streaming_sortformer_4spk-v2`, CC-BY-4.0) -- identifies who is speaking. Achieves 6.57% DER at 1.04s latency on CALLHOME. **Limitation**: maximum 4 speakers; performance degrades with 5+. This aligns with the Nemawashi (2) and small meeting (3-5) modes, but 5-participant meetings may see reduced accuracy. For 6+ participant Meet calls, diarization is not needed since Max Interleaf mode uses a single undifferentiated stream.
 - **Language Detection** -- determines which language each speaker is using (handles code-switching where EN and JA are mixed in a single sentence)
 
-For Google Meet calls, a Kotoleaf bot joins the meeting via the Google Meet REST API and captures participant audio server-side. For in-person meetings, audio comes from each participant's device microphone.
+For Google Meet calls, a Kotoleaf bot joins the meeting via a headless browser (Playwright) and captures participant audio server-side. The Google Meet Media API offers an official path for real-time audio capture but remains in Developer Preview (as of early 2026) with restrictions that make it impractical for production -- all participants must be enrolled in the Developer Preview Program, no SDK is provided, and consent can be revoked mid-call. The headless browser approach is the standard production pattern today (used by Recall.ai and similar meeting bot services). Migration to the Media API is planned when it reaches GA. For in-person meetings, audio comes from each participant's device microphone.
 
 ### Mind (Understanding)
 
@@ -104,7 +105,7 @@ The Mind's output for each term is a decision: **surface** (include in this part
 
 Produces personalised output for each participant.
 
-- **Translation** (NLLW/NLLB, distilled 1.3B) -- simultaneous streaming translation, self-hosted, no per-token cost
+- **Translation** (NLLB, distilled 1.3B) -- simultaneous streaming translation, self-hosted, no per-token cost. NLLB (No Language Left Behind, Meta) scores ~16-18 spBLEU on EN->JA (FLORES-200). Licensed CC-BY-NC-4.0 -- suitable for non-commercial institutional use.
 - **Two-Stage Correction** -- initial fast translation from NLLB, followed by a Claude Haiku refinement pass that fixes contextual errors, cultural nuances, and metaphors
 - **Interleaver** -- formats the subtitle output, calibrated to each participant's growth level:
   - **Seedling**: full translation with vocabulary annotations, readings, cultural notes
@@ -133,7 +134,9 @@ Tags:      [business, ChibaTech, approval-process]
 
 ### Spaced Repetition (FSRS)
 
-Encountered terms become flashcards in a personal database, reviewed using the FSRS algorithm (the modern successor to SM-2, used by Anki).
+Encountered terms become flashcards in a personal database, reviewed using the FSRS algorithm (the modern successor to SM-2, used natively by Anki since v23.10). FSRS-6 (21 parameters) is backed by a peer-reviewed ACM KDD paper (Ye, Su & Cao, 2022) and shows 99.6% superiority over SM-2 across 10,000 users in the open-spaced-repetition benchmark. Implementation uses `py-fsrs` (MIT, v6.3.0+), the official Python library maintained by the FSRS creator.
+
+**Passive encounter mapping**: Applying FSRS to vocabulary encountered passively in meetings (rather than traditional flashcard study) is a novel application. The spacing effect in incidental learning contexts is supported by Nakata & Elgort (2021) and Nakata & Webb (2021), but no prior system uses algorithmic scheduling for it. Initial approach: treat each contextual encounter as `Rating.Good`; refine with engagement signals (lookups, pauses, correct usage) in later phases. A lower `desired_retention` (0.7-0.8) may be appropriate since passive recognition requires less precision than active recall.
 
 User actions during review:
 - **Again** / **Hard** / **Good** / **Easy** -- standard FSRS responses that adjust scheduling
@@ -201,18 +204,22 @@ The default (vocab only) is the most privacy-preserving option while still servi
 
 ## AI Provider Strategy
 
-A mix of self-hosted models (for latency-sensitive, high-volume work) and API calls (for intelligence tasks where quality matters more than speed).
+A mix of self-hosted models (for latency-sensitive, high-volume work) and API calls (for intelligence tasks where quality matters more than speed). Total API cost is estimated at **~$0.30-0.50 per hour of meeting** at current pricing.
 
-| Task | Provider | Rationale |
-|------|----------|----------|
-| Speech recognition | **faster-whisper** (self-hosted) | No API dependency, lowest latency |
-| Translation (bulk, streaming) | **NLLW/NLLB** (self-hosted) | Simultaneous streaming, no per-token cost |
-| Two-stage correction | **Claude Haiku** (Anthropic API) | Fast, cheap, excellent contextual refinement |
-| Misunderstanding detection | **Claude Sonnet** (Anthropic API) | Needs deeper cultural/linguistic reasoning |
-| Material ingestion | **Gemini** (Google AI API) | Native Google Workspace access |
-| Cultural briefing notes | **Claude Sonnet** (Anthropic API) | Nuanced cross-cultural communication |
-| Term extraction from materials | **Gemini Flash** (Google AI API) | High volume, lower cost |
-| SRS card generation | **Claude Haiku** (Anthropic API) | Good context summaries at scale |
+For MVP (Phases 1-2), an **Anthropic-only** strategy simplifies integration to one SDK, one billing account, and one error-handling path. Gemini is added in Phase 3 when document ingestion benefits from its 1M token context and multimodal capabilities. An LLM gateway abstraction (e.g. LiteLLM) is used from the start to make provider-swapping trivial.
+
+**Note**: Gemini's developer API does **not** have native Google Workspace access. Content from Docs, Slides, and Drive must be extracted via their respective APIs and then passed to Gemini for processing.
+
+| Task | Provider | Phase | Rationale |
+|------|----------|-------|----------|
+| Speech recognition | **faster-whisper** (self-hosted) | 1 | No API dependency, lowest latency |
+| Translation (bulk, streaming) | **NLLB** (self-hosted, distilled 1.3B) | 1 | Simultaneous streaming, no per-token cost |
+| Two-stage correction | **Claude Haiku** (Anthropic API) | 2 | Fast, cheap, excellent contextual refinement. Supported by APE literature (Raunak et al. 2023, Ki & Carpuat NAACL 2024) |
+| Misunderstanding detection | **Claude Sonnet** (Anthropic API) | 3 | Needs deeper cultural/linguistic reasoning |
+| Material ingestion | **Gemini** (Google AI API) | 3 | 1M token context, multimodal (PDF/images), cost-effective for bulk document processing |
+| Cultural briefing notes | **Claude Sonnet** (Anthropic API) | 3 | Nuanced cross-cultural communication |
+| Term extraction from materials | **Gemini Flash** (Google AI API) | 3 | High volume, lower cost |
+| SRS card generation | **Claude Haiku** (Anthropic API) | 2 | Good context summaries at scale |
 
 ## Tech Stack
 
@@ -223,15 +230,15 @@ A mix of self-hosted models (for latency-sensitive, high-volume work) and API ca
 | ASR | faster-whisper (large-v3-turbo) | GCP Compute Engine, L4 GPU |
 | VAD | Silero VAD | Same GPU instance |
 | Diarization | Streaming Sortformer | Same GPU instance |
-| Translation | NLLW/NLLB (distilled 1.3B) | Same GPU instance |
+| Translation | NLLB (distilled 1.3B) | Same GPU instance |
 | LLM (correction, detection) | Claude Haiku / Sonnet | Anthropic API |
-| LLM (ingestion, extraction) | Gemini / Gemini Flash | Google AI API |
+| LLM (ingestion, extraction) | Gemini / Gemini Flash (Phase 3) | Google AI API |
 | User DB / Vocab / SRS | Firestore or Cloud SQL | GCP |
 | Glossary DB | Firestore | GCP |
 | Auth | Google Workspace SSO | Google Identity |
-| Meet integration | Google Meet REST API (bot) | GCP Cloud Run |
+| Meet integration | Headless browser bot (Playwright); migrate to Google Meet Media API at GA | GCP Cloud Run |
 
-GPU requirement: a single L4 (24GB VRAM, ~$0.80/hr on GCP) handles the full self-hosted pipeline for up to 5 participants with per-person interleaving.
+GPU requirement: a single L4 (24GB VRAM) handles the full self-hosted pipeline for up to 5 participants with per-person interleaving. Combined VRAM usage is ~9-10GB (FP16) or ~7GB (INT8), leaving significant headroom. GCP g2-standard-4 pricing is ~$0.71/hr on-demand, ~$0.25/hr spot. Alternative providers (e.g. Runpod at $0.39/hr) offer further savings. A T4 (16GB, ~$0.35/hr) is feasible with INT8 quantization for development.
 
 ## Scaling
 
@@ -247,7 +254,7 @@ The per-participant cost is lightweight because the heavy work (ASR, translation
 
 These are known hard problems that the design must account for:
 
-- **Word order (SOV vs SVO)** -- Japanese puts the verb at the end. JA-to-EN translation requires buffering most of a clause before producing grammatical English. EN-to-JA is more tractable incrementally. The Ear layer uses asymmetric buffer sizes per language direction.
+- **Word order (SOV vs SVO)** -- Japanese puts the verb at the end. JA-to-EN translation requires buffering most of a clause before producing grammatical English. EN-to-JA is more tractable incrementally. The system uses asymmetric buffer sizes per language direction: **k=7-9 source tokens / 2-3s audio chunks for EN-to-JA** (harder, verb-final target), **k=3-5 / 1-1.5s for JA-to-EN** (easier, verb-early target). These values follow SASST (2025) syntax-aware chunking research and TAF (NAACL 2025) anticipatory translation for SOV languages.
 - **Subject omission** -- Japanese frequently drops subjects. The Mind layer uses conversation context to infer subjects.
 - **Honorifics (keigo)** -- Three levels of politeness with no direct English equivalent. The Mind layer uses social context from the meeting setup to guide appropriate register.
 - **Code-switching** -- ChibaTech meetings likely mix EN and JA in single sentences. No off-the-shelf solution exists; this requires custom work in the Ear layer.
@@ -321,3 +328,46 @@ From nemawashi to the whole organisation.
 - Code-switching handling for mixed EN-JA sentences
 
 **Success metric**: a 5-person in-person meeting and a 10-person Google Meet call both run smoothly with appropriate interleaving, and all participants' vocabulary databases are updated with new terms from the meeting.
+
+## Licensing Notes
+
+| Dependency | License | Note |
+|------------|---------|------|
+| `py-fsrs` | MIT | No restrictions |
+| `faster-whisper` | MIT | No restrictions |
+| Silero VAD | MIT | No restrictions |
+| CTranslate2 | MIT | No restrictions |
+| NLLB-200 models | **CC-BY-NC-4.0** | Non-commercial use only. Suitable for ChibaTech internal use. If commercialisation is ever considered, alternatives include MADLAD-400 (Apache-2.0) or GemmaX2-28 (Gemma license). |
+| Streaming Sortformer | CC-BY-4.0 | Attribution required, commercial use permitted |
+| NeMo framework | Apache-2.0 | No restrictions |
+
+## References
+
+### Spaced Repetition
+- Ye, J., Su, J., & Cao, Y. (2022). "A Stochastic Shortest Path Algorithm for Optimizing Spaced Repetition Scheduling." ACM KDD 2022. https://dl.acm.org/doi/10.1145/3534678.3539081
+- Nakata, T. & Elgort, I. (2021). "Effects of spacing on contextual vocabulary learning." *Second Language Research*. https://journals.sagepub.com/doi/abs/10.1177/0267658320927764
+- Nakata, T. & Webb, S. (2021). "The effect of spacing on incidental and deliberate learning." https://www.sciencedirect.com/science/article/pii/S0346251X21002037
+- FSRS benchmark (10k Anki users): https://github.com/open-spaced-repetition/srs-benchmark
+- `py-fsrs`: https://github.com/open-spaced-repetition/py-fsrs
+
+### Speech Recognition & Diarization
+- faster-whisper: https://github.com/SYSTRAN/faster-whisper
+- Silero VAD: https://github.com/snakers4/silero-vad
+- NVIDIA Streaming Sortformer (2025). https://arxiv.org/html/2507.18446v1
+- Whisper-Streaming: https://github.com/ufal/whisper_streaming
+
+### Machine Translation
+- Costa-jussa, M.R. et al. (2024). "No Language Left Behind." *Nature*. https://www.nature.com/articles/s41586-024-07335-x
+- GemmaX2-28 (NAACL 2025): https://arxiv.org/abs/2502.02481
+
+### Simultaneous Translation
+- SASST -- Syntax-Aware Simultaneous Speech Translation (2025): https://arxiv.org/html/2508.07781v1
+- TAF -- Translation by Anticipating Future (NAACL 2025): https://aclanthology.org/2025.naacl-long.286/
+
+### Automatic Post-Editing
+- Raunak, V. et al. (2023). "Leveraging GPT-4 for Automatic Translation Post-Editing." https://arxiv.org/pdf/2305.14878v1
+- Ki, Y. & Carpuat, M. (2024). "Guiding LLMs to Post-Edit MT with Error Annotations." NAACL Findings. https://arxiv.org/abs/2404.07851
+
+### Google Meet Integration
+- Google Meet Media API (Developer Preview): https://developers.google.com/workspace/meet/media-api/guides/overview
+- Recall.ai headless browser bot tutorial (2026): https://www.recall.ai/blog/how-i-built-an-in-house-google-meet-bot

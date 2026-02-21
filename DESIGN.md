@@ -139,6 +139,19 @@ User actions during review:
 - **Again** / **Hard** / **Good** / **Easy** -- standard FSRS responses that adjust scheduling
 - **Known Forever** -- removes the term from future interleaving entirely (the participant is certain they won't forget it)
 
+### Importing Existing Vocabulary
+
+Language learners who already use SRS tools shouldn't start from zero. Kotoleaf supports importing existing FSRS state so that prior study immediately informs interleaving decisions.
+
+Supported import sources:
+- **Anki** -- export via `.apkg` or `.colpkg` files. Anki uses FSRS natively (since v23.10), so scheduling state (stability, difficulty, last review date) maps directly.
+- **FSRS-compatible apps** -- any app that exports FSRS parameters (stability, difficulty, due date, reps) can be imported via a standard JSON/CSV format.
+- **Vocabulary lists without SRS state** -- plain word lists (e.g. from WaniKani, Memrise, or a personal spreadsheet) can be imported as "Known Forever" or with a configurable default stability, so the system treats them as rooted vocabulary rather than new encounters.
+
+On import, matched terms (by surface form + reading) are merged with any existing Kotoleaf entries. The import state takes precedence for terms not yet encountered in meetings; for terms already tracked in Kotoleaf, the higher stability wins.
+
+This means a participant who has been studying Japanese for years can import their Anki deck on day one and start at Canopy or Deep Root instead of Seedling -- their roots are already partially grown.
+
 ### Growth Level Calculation
 
 A participant's growth level is a function of their vocabulary state:
@@ -280,6 +293,7 @@ The roots start to grow.
 - Growth level calculation from FSRS state
 - "Known Forever" marking
 - Vocabulary state feeds into interleaving decisions (Seedling through Evergreen transitions)
+- Import existing FSRS state from Anki (`.apkg`/`.colpkg`), FSRS-compatible apps (JSON/CSV), or plain vocabulary lists
 - Two-stage correction with Claude Haiku
 
 **Success metric**: a participant who reviews flashcards regularly sees noticeably less interleaving over weeks of meetings, matching their actual comprehension growth.

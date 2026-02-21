@@ -118,13 +118,12 @@ Silence speaks at last<br>
 
 <p>The name layers meaning across both languages:</p>
 
-<table>
-<tr><th>Layer</th><th>Meaning</th></tr>
-<tr><td>言 (<em>koto</em>)</td><td>Word, speech, language</td></tr>
-<tr><td>リーフ (<em>riifu</em>)</td><td>Leaf — growth, interleaving, the Kotonoha heritage</td></tr>
-<tr><td>Interleaf</td><td>Bookbinding: pages inserted for annotation</td></tr>
-<tr><td>小鳥 (<em>kotori</em>)</td><td>"Little bird" in the sound — a whispering familiar</td></tr>
-</table>
+<ul>
+<li><strong>言</strong> (<em>koto</em>) — Word, speech, language</li>
+<li><strong>リーフ</strong> (<em>riifu</em>) — Leaf: growth, interleaving, the Kotonoha heritage</li>
+<li><strong>Interleaf</strong> — Bookbinding: pages inserted for annotation</li>
+<li><strong>小鳥</strong> (<em>kotori</em>) — "Little bird" in the sound — a whispering familiar</li>
+</ul>
 
 </td>
 <td valign="top" align="left">
@@ -133,13 +132,12 @@ Silence speaks at last<br>
 
 <p>この名前には両言語にまたがる意味が重なっています：</p>
 
-<table>
-<tr><th>層</th><th>意味</th></tr>
-<tr><td>言（こと）</td><td>言葉、話すこと、言語</td></tr>
-<tr><td>リーフ</td><td>葉 ― 成長、インターリーブ、言の葉の系譜</td></tr>
-<tr><td>Interleaf</td><td>製本用語：注釈用にページ間に挟む紙</td></tr>
-<tr><td>小鳥（ことり）</td><td>音の中に隠れた意味：理解をささやく使い魔</td></tr>
-</table>
+<ul>
+<li><strong>言</strong>（こと） — 言葉、話すこと、言語</li>
+<li><strong>リーフ</strong> — 葉：成長、インターリーブ、言の葉の系譜</li>
+<li><strong>Interleaf</strong> — 製本用語：注釈用にページ間に挟む紙</li>
+<li><strong>小鳥</strong>（ことり） — 音の中に隠れた意味：理解をささやく使い魔</li>
+</ul>
 
 </td></tr>
 

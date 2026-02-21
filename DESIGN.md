@@ -10,7 +10,7 @@ Kotoleaf is an in-house tool that brings the best of Flitto and the broader simu
 
 1. **The roots, not the leaves, are the goal.** Every feature should strengthen the root network -- shared vocabulary, cultural understanding, mutual trust -- between participants. Translation is the means, not the end.
 
-2. **Privacy by default.** Institutional knowledge stays on our infrastructure. Meeting data retention is controlled by organisers. The default is to keep only vocabulary growth, discarding transcripts.
+2. **Privacy where it matters.** Meeting audio is sent to API providers (Deepgram, Anthropic) for processing -- both are SOC 2 Type II and GDPR compliant. Vocabulary data, institutional glossary, and growth state remain on ChibaTech's GCP infrastructure. The default is to keep only vocabulary growth, discarding transcripts.
 
 3. **Nemawashi-first design.** The system is designed around 1-to-1 bilingual conversation (nemawashi) as the primary use case. If it works beautifully for two people building consensus, everything else scales from there.
 
@@ -48,47 +48,50 @@ Three processing layers named for the metaphor: Ear (perception), Mind (understa
          |                    |
     [WebSocket]          [Google SSO]
          |                    |
-+---[ GCP ]-------------------------------------------------------+
-|                                                                  |
-|  +--[ Kotoleaf Server ]-----------------------------------------+|
-|  |                                                              ||
-|  |  Ear ────────> Mind ────────> Tongue                         ||
-|  |  - faster-whisper   - Comprehension    - NLLB                ||
-|  |  - Silero VAD         model            - Claude (correction) ||
-|  |  - Sortformer       - Growth level     - Interleaver         ||
-|  |    diarization        calculator       - Per-user filter     ||
-|  |                     - Glossary lookup                        ||
-|  |                     - Misunderstanding                       ||
-|  |                       detection                              ||
-|  +---+-------------------+-------------------+------------------+|
-|      |                   |                   |                   |
-|  +---+-------+  +--------+-----------+  +----+-------------+    |
-|  | User      |  | Institutional      |  | Meeting          |    |
-|  | Vocab     |  | Glossary           |  | Materials        |    |
-|  | SRS (FSRS)|  | (ChibaTech terms)  |  | (per-session)    |    |
-|  +-----------+  | from Workspace,    |  | Slides, Docs,    |    |
-|                 | GitHub, Slack      |  | briefing notes   |    |
-|                 +--------------------+  +------------------+    |
-|                                                                  |
-|  +--[ Google Meet Bot ]--+                                       |
-|  | Headless browser       |                                       |
-|  | (Playwright)           |                                       |
-|  | Captures audio         |                                       |
-|  | Routes to Ear          |                                       |
-|  +-----------------------+                                       |
-+------------------------------------------------------------------+
++---[ GCP Cloud Run ]------------------------------------------------+
+|                                                                     |
+|  +--[ Kotoleaf Server (no GPU) ]----------------------------------+ |
+|  |                                                                | |
+|  |  Ear ────────> Mind ────────> Tongue                           | |
+|  |  - Deepgram     - Comprehension    - Claude Haiku              | |
+|  |    Nova-3 API     model              (translation +            | |
+|  |    (ASR +       - Growth level       correction, single pass)  | |
+|  |    diarization    calculator       - Interleaver               | |
+|  |    + LID)       - Glossary lookup  - Per-user filter           | |
+|  |                 - Misunderstanding                              | |
+|  |                   detection                                    | |
+|  +---+-------------------+-------------------+--------------------+ |
+|      |                   |                   |                      |
+|  +---+-------+  +--------+-----------+  +----+-------------+       |
+|  | User      |  | Institutional      |  | Meeting          |       |
+|  | Vocab     |  | Glossary           |  | Materials        |       |
+|  | SRS (FSRS)|  | (ChibaTech terms)  |  | (per-session)    |       |
+|  | Firestore |  | from Workspace,    |  | Slides, Docs,    |       |
+|  +-----------+  | GitHub, Slack      |  | briefing notes   |       |
+|                 | Firestore          |  | Firestore        |       |
+|                 +--------------------+  +------------------+       |
+|                                                                     |
+|  +--[ Google Meet Bot ]--+    +--[ API Providers ]---------------+  |
+|  | Headless browser       |    | Deepgram Nova-3 (streaming ASR) |  |
+|  | (Playwright)           |    | Anthropic Claude Haiku / Sonnet |  |
+|  | Captures audio         |    +---------------------------------+  |
+|  | Routes to Ear          |                                         |
+|  +-----------------------+                                         |
++---------------------------------------------------------------------+
 ```
 
 ### Ear (Perception)
 
-Captures live audio and converts it to text with speaker attribution.
+Captures live audio and converts it to text with speaker attribution and language tagging.
 
-- **Voice Activity Detection** (Silero VAD) -- reduces compute when nobody is speaking
-- **Speech Recognition** (faster-whisper, large-v3-turbo) -- multilingual ASR, 99+ languages, runs on GPU. Whisper is chunk-based (not natively streaming); a streaming wrapper (Whisper-Streaming / SimulStreaming) processes audio incrementally, yielding expected subtitle latency of **1-3 seconds**. This is the best self-hosted option for bilingual EN+JA -- streaming-native models (NVIDIA Parakeet-TDT, Canary) offer lower latency but do not support Japanese.
-- **Speaker Diarization** (Streaming Sortformer, `nvidia/diar_streaming_sortformer_4spk-v2`, CC-BY-4.0) -- identifies who is speaking. Achieves 6.57% DER at 1.04s latency on CALLHOME. **Limitation**: maximum 4 speakers; performance degrades with 5+. This aligns with the Nemawashi (2) and small meeting (3-5) modes, but 5-participant meetings may see reduced accuracy. For 6+ participant Meet calls, diarization is not needed since Max Interleaf mode uses a single undifferentiated stream.
-- **Language Detection** -- determines which language each speaker is using (handles code-switching where EN and JA are mixed in a single sentence)
+- **Speech Recognition** (Deepgram Nova-3, `language=multi`) -- multilingual streaming ASR via WebSocket API. True EN-JA code-switching with per-word language tags. Sub-300ms latency. The Feb 2026 multilingual update improved code-switching WER by ~21%.
+- **Speaker Diarization** -- Deepgram's built-in streaming diarization (add-on at $0.0020/min). No separate model needed. No speaker count limitations like self-hosted alternatives.
+- **Language Detection** -- built into Deepgram's multilingual mode. Each word is tagged with its detected language. No separate language ID model needed.
+- **Voice Activity Detection** -- handled by Deepgram server-side. No client-side VAD needed.
 
 For Google Meet calls, a Kotoleaf bot joins the meeting via a headless browser (Playwright) and captures participant audio server-side. The Google Meet Media API offers an official path for real-time audio capture but remains in Developer Preview (as of early 2026) with restrictions that make it impractical for production -- all participants must be enrolled in the Developer Preview Program, no SDK is provided, and consent can be revoked mid-call. The headless browser approach is the standard production pattern today (used by Recall.ai and similar meeting bot services). Migration to the Media API is planned when it reaches GA. For in-person meetings, audio comes from each participant's device microphone.
+
+Cost: ~$0.0092/min ($0.55/hr) for multilingual streaming + $0.0020/min diarization = ~$0.67/hr total.
 
 ### Mind (Understanding)
 
@@ -105,8 +108,7 @@ The Mind's output for each term is a decision: **surface** (include in this part
 
 Produces personalised output for each participant.
 
-- **Translation** (NLLB, distilled 1.3B) -- simultaneous streaming translation, self-hosted, no per-token cost. NLLB (No Language Left Behind, Meta) scores ~16-18 spBLEU on EN->JA (FLORES-200). Licensed CC-BY-NC-4.0 -- suitable for non-commercial institutional use.
-- **Two-Stage Correction** -- initial fast translation from NLLB, followed by a Claude Haiku refinement pass that fixes contextual errors, cultural nuances, and metaphors
+- **Translation + Correction** (Claude Haiku, single call) -- each transcript segment is sent to Claude Haiku with the system prompt containing: ChibaTech glossary, per-meeting session glossary, participant relationship context, recent conversation history, and register guidance. Claude translates and applies cultural correction in one pass. Single API call means lower latency than chaining two services. Claude's contextual awareness produces more natural translations than dedicated MT engines for this domain.
 - **Interleaver** -- formats the subtitle output, calibrated to each participant's growth level:
   - **Seedling**: full translation with vocabulary annotations, readings, cultural notes
   - **Canopy**: key terms and idiomatic expressions surfaced, core meaning flows naturally
@@ -204,22 +206,20 @@ The default (vocab only) is the most privacy-preserving option while still servi
 
 ## AI Provider Strategy
 
-A mix of self-hosted models (for latency-sensitive, high-volume work) and API calls (for intelligence tasks where quality matters more than speed). Total API cost is estimated at **~$0.30-0.50 per hour of meeting** at current pricing.
+API-first architecture using two providers: Deepgram (ASR) and Anthropic (translation, correction, intelligence). Total estimated cost: **~$1.20-1.50 per hour of meeting**.
 
-For MVP (Phases 1-2), an **Anthropic-only** strategy simplifies integration to one SDK, one billing account, and one error-handling path. Gemini is added in Phase 3 when document ingestion benefits from its 1M token context and multimodal capabilities. An LLM gateway abstraction (e.g. LiteLLM) is used from the start to make provider-swapping trivial.
+| Task | Provider | Model | Cost | Latency |
+|------|----------|-------|------|---------|
+| Speech recognition + diarization + language detection | Deepgram | Nova-3 multilingual | ~$0.67/hr | <300ms streaming |
+| Translation + correction | Anthropic | Claude Haiku | ~$0.17/hr | ~200-400ms |
+| Misunderstanding detection | Anthropic | Claude Haiku (inline with translation) | included above | inline |
+| Cultural briefing notes | Anthropic | Claude Sonnet | ~$0.22/hr (when used) | off critical path |
+| Meeting materials analysis | Anthropic | Claude Sonnet | per-meeting, negligible | pre-meeting |
+| SRS card generation | Anthropic | Claude Haiku | ~$0.06/meeting | post-meeting |
 
-**Note**: Gemini's developer API does **not** have native Google Workspace access. Content from Docs, Slides, and Drive must be extracted via their respective APIs and then passed to Gemini for processing.
+**Note on Gemini**: Gemini may be added later for meeting materials ingestion if 1M token context or multimodal processing (slides with images) is needed. Not required for MVP.
 
-| Task | Provider | Phase | Rationale |
-|------|----------|-------|----------|
-| Speech recognition | **faster-whisper** (self-hosted) | 1 | No API dependency, lowest latency |
-| Translation (bulk, streaming) | **NLLB** (self-hosted, distilled 1.3B) | 1 | Simultaneous streaming, no per-token cost |
-| Two-stage correction | **Claude Haiku** (Anthropic API) | 2 | Fast, cheap, excellent contextual refinement. Supported by APE literature (Raunak et al. 2023, Ki & Carpuat NAACL 2024) |
-| Misunderstanding detection | **Claude Sonnet** (Anthropic API) | 3 | Needs deeper cultural/linguistic reasoning |
-| Material ingestion | **Gemini** (Google AI API) | 3 | 1M token context, multimodal (PDF/images), cost-effective for bulk document processing |
-| Cultural briefing notes | **Claude Sonnet** (Anthropic API) | 3 | Nuanced cross-cultural communication |
-| Term extraction from materials | **Gemini Flash** (Google AI API) | 3 | High volume, lower cost |
-| SRS card generation | **Claude Haiku** (Anthropic API) | 2 | Good context summaries at scale |
+**Note on privacy**: Meeting audio is sent to Deepgram (SOC 2 Type II, HIPAA, GDPR compliant). Transcript text is sent to Anthropic. Vocabulary data, institutional glossary, and growth state remain on ChibaTech's GCP infrastructure. This is a deliberate trade-off: API providers deliver code-switching, accent robustness, and translation quality that would take years to build self-hosted.
 
 ## Tech Stack
 
@@ -227,22 +227,21 @@ For MVP (Phases 1-2), an **Anthropic-only** strategy simplifies integration to o
 |-------|-----------|--------|
 | Frontend | Web app (TBD framework) | GCP Cloud Run or static + CDN |
 | Audio transport | WebSocket | GCP Cloud Run |
-| ASR | faster-whisper (large-v3-turbo) | GCP Compute Engine, L4 GPU |
-| VAD | Silero VAD | Same GPU instance |
-| Diarization | Streaming Sortformer | Same GPU instance |
-| Translation | NLLB (distilled 1.3B) | Same GPU instance |
-| LLM (correction, detection) | Claude Haiku / Sonnet | Anthropic API |
-| LLM (ingestion, extraction) | Gemini / Gemini Flash (Phase 3) | Google AI API |
-| User DB / Vocab / SRS | Firestore or Cloud SQL | GCP |
+| ASR + diarization + LID | Deepgram Nova-3 multilingual | Deepgram API (streaming WebSocket) |
+| Translation + correction | Claude Haiku | Anthropic API |
+| Intelligence (cultural, materials) | Claude Sonnet | Anthropic API |
+| User DB / Vocab / SRS | Firestore | GCP |
 | Glossary DB | Firestore | GCP |
 | Auth | Google Workspace SSO | Google Identity |
 | Meet integration | Headless browser bot (Playwright); migrate to Google Meet Media API at GA | GCP Cloud Run |
 
-GPU requirement: a single L4 (24GB VRAM) handles the full self-hosted pipeline for up to 5 participants with per-person interleaving. Combined VRAM usage is ~9-10GB (FP16) or ~7GB (INT8), leaving significant headroom. GCP g2-standard-4 pricing is ~$0.71/hr on-demand, ~$0.25/hr spot. Alternative providers (e.g. Runpod at $0.39/hr) offer further savings. A T4 (16GB, ~$0.35/hr) is feasible with INT8 quantization for development.
+No GPU required. The Kotoleaf server is a stateless Cloud Run service that orchestrates API calls and manages WebSocket connections. Estimated infrastructure cost: Cloud Run (~$50-100/month for moderate usage) + Firestore (~$10-25/month) + API costs per meeting hour.
 
 ## Scaling
 
-The per-participant cost is lightweight because the heavy work (ASR, translation, correction) is shared -- everyone hears the same audio, so there's one pipeline. The per-participant work is just filtering which terms to surface based on their vocabulary database (a database lookup + text formatting, not a GPU task).
+The per-participant cost is lightweight because the heavy work (ASR, translation, correction) is shared -- everyone hears the same audio, so there's one pipeline. The per-participant work is just filtering which terms to surface based on their vocabulary database (a database lookup + text formatting).
+
+Scaling is handled by Deepgram and Anthropic's infrastructure, not ours. No GPU provisioning, no cold starts, no VRAM budgeting. Cloud Run auto-scales the orchestration layer. Cost scales linearly with meeting hours, not with infrastructure.
 
 | Scenario | Participants | Interleaving | Compute |
 |----------|-------------|--------------|--------|
@@ -254,10 +253,10 @@ The per-participant cost is lightweight because the heavy work (ASR, translation
 
 These are known hard problems that the design must account for:
 
-- **Word order (SOV vs SVO)** -- Japanese puts the verb at the end. JA-to-EN translation requires buffering most of a clause before producing grammatical English. EN-to-JA is more tractable incrementally. The system uses asymmetric buffer sizes per language direction: **k=7-9 source tokens / 2-3s audio chunks for EN-to-JA** (harder, verb-final target), **k=3-5 / 1-1.5s for JA-to-EN** (easier, verb-early target). These values follow SASST (2025) syntax-aware chunking research and TAF (NAACL 2025) anticipatory translation for SOV languages.
+- **Word order (SOV vs SVO)** -- Japanese puts the verb at the end. JA-to-EN translation requires buffering most of a clause before producing grammatical English. Claude handles this natively through its understanding of both languages, buffering context as needed before producing translations. No manual buffer configuration required.
 - **Subject omission** -- Japanese frequently drops subjects. The Mind layer uses conversation context to infer subjects.
 - **Honorifics (keigo)** -- Three levels of politeness with no direct English equivalent. The Mind layer uses social context from the meeting setup to guide appropriate register.
-- **Code-switching** -- ChibaTech meetings likely mix EN and JA in single sentences. No off-the-shelf solution exists; this requires custom work in the Ear layer.
+- **Code-switching** -- ChibaTech meetings frequently mix EN and JA in single sentences. Deepgram Nova-3's multilingual mode (`language=multi`) provides native code-switching support with per-word language tags, resolving what was previously the hardest unsolved problem in the pipeline. Feb 2026 improvements reduced code-switching WER by ~21%.
 - **Context-dependent meaning** -- Many Japanese expressions carry meaning that depends on tone and social context (e.g. "kentou shimasu" = "I'll consider it" or "no"). This is where misunderstanding detection earns its place.
 
 ## Features Reverse-Engineered from Commercial Services
@@ -266,11 +265,11 @@ Key capabilities adapted from the commercial landscape:
 
 | Feature | Inspired By | Kotoleaf Adaptation |
 |---------|------------|--------------------|
-| Context-buffered translation | Flitto (cross-contextual inference) | Configurable buffer per language direction; larger for JA-to-EN |
-| Two-stage correction | Flitto (2-stage correction system) | NLLB fast pass + Claude refinement pass |
+| Context-buffered translation | Flitto (cross-contextual inference) | Claude single-pass translation with conversation history in system prompt |
+| Single-pass translation + correction | Flitto (2-stage correction system) | Claude single-pass translation with glossary + context injection |
 | Institutional glossary | Flitto (hyper-personalisation), Palabra (glossary API) | Local glossary from Workspace/GitHub/Slack + per-meeting materials |
 | QR-code access | Flitto (no-install audience access) | Web app, no install, Google SSO |
-| Glossary API for speech | Palabra AI | Whisper init_prompt biasing + translation-layer term enforcement |
+| Glossary-aware speech recognition | Palabra AI | Deepgram keyword boosting + Claude glossary-aware translation |
 | Continuous learning loop | Flitto (post-event log analysis) | Vocab tracking + FSRS feeds back into interleaving decisions |
 | Material pre-learning | Flitto (pre-event customisation) | Meeting materials upload + term extraction before session |
 
@@ -284,7 +283,8 @@ The simplest thing that is useful: two people, one conversation, interleaved und
 
 - Web app with subtitle bar
 - 1-to-1 mode only (2 participants)
-- faster-whisper ASR + NLLB translation (no two-stage correction yet)
+- Deepgram Nova-3 multilingual streaming ASR with code-switching
+- Claude Haiku for translation + correction (single-pass)
 - Cold-start Seedling for everyone (full interleaving)
 - Google SSO login
 - Basic vocab capture (encountered terms saved to user database, no SRS yet)
@@ -301,7 +301,7 @@ The roots start to grow.
 - "Known Forever" marking
 - Vocabulary state feeds into interleaving decisions (Seedling through Evergreen transitions)
 - Import existing FSRS state from Anki (`.apkg`/`.colpkg`), FSRS-compatible apps (JSON/CSV), or plain vocabulary lists
-- Two-stage correction with Claude Haiku
+- Misunderstanding detection inline with translation (Claude flags culturally-loaded expressions)
 
 **Success metric**: a participant who reviews flashcards regularly sees noticeably less interleaving over weeks of meetings, matching their actual comprehension growth.
 
@@ -310,9 +310,8 @@ The roots start to grow.
 The shared root network.
 
 - ChibaTech glossary (manual entry + ingestion from Workspace, GitHub, Slack)
-- Meeting materials upload + Gemini-powered term extraction
+- Meeting materials upload + Claude-powered term extraction (upgrade to Gemini if 1M context or multimodal processing needed)
 - Cultural briefing notes from Claude Sonnet
-- Misunderstanding detection for culturally-loaded expressions
 - Per-meeting session glossary
 
 **Success metric**: an English speaker uploads pitch slides before a meeting with Japanese executives, and domain terms translate consistently throughout the presentation with cultural context surfaced where needed.
@@ -321,25 +320,24 @@ The shared root network.
 
 From nemawashi to the whole organisation.
 
-- In-person meetings with 3-5 participants (speaker diarization)
+- Scale to 3-5 participant in-person meetings (already supported by Deepgram diarization)
 - Google Meet bot integration
 - Max Interleaf mode for larger calls (6+ participants)
 - Data retention controls (vocab only / summary / full transcript / full + audio)
-- Code-switching handling for mixed EN-JA sentences
+- Evaluate self-hosted ASR/translation for privacy-sensitive deployments (optional migration path)
 
 **Success metric**: a 5-person in-person meeting and a 10-person Google Meet call both run smoothly with appropriate interleaving, and all participants' vocabulary databases are updated with new terms from the meeting.
 
 ## Licensing Notes
 
+The API-first approach eliminates most licensing concerns:
+
 | Dependency | License | Note |
 |------------|---------|------|
 | `py-fsrs` | MIT | No restrictions |
-| `faster-whisper` | MIT | No restrictions |
-| Silero VAD | MIT | No restrictions |
-| CTranslate2 | MIT | No restrictions |
-| NLLB-200 models | **CC-BY-NC-4.0** | Non-commercial use only. Suitable for ChibaTech internal use. If commercialisation is ever considered, alternatives include MADLAD-400 (Apache-2.0) or GemmaX2-28 (Gemma license). |
-| Streaming Sortformer | CC-BY-4.0 | Attribution required, commercial use permitted |
-| NeMo framework | Apache-2.0 | No restrictions |
+| Deepgram Nova-3 | Commercial API | SOC 2 Type II, HIPAA, GDPR. Data processing agreement available. |
+| Anthropic Claude | Commercial API | SOC 2, responsible AI usage policy. |
+| Playwright | Apache-2.0 | No restrictions |
 
 ## References
 
@@ -350,15 +348,16 @@ From nemawashi to the whole organisation.
 - FSRS benchmark (10k Anki users): https://github.com/open-spaced-repetition/srs-benchmark
 - `py-fsrs`: https://github.com/open-spaced-repetition/py-fsrs
 
-### Speech Recognition & Diarization
-- faster-whisper: https://github.com/SYSTRAN/faster-whisper
-- Silero VAD: https://github.com/snakers4/silero-vad
-- NVIDIA Streaming Sortformer (2025). https://arxiv.org/html/2507.18446v1
-- Whisper-Streaming: https://github.com/ufal/whisper_streaming
+### Speech Recognition (API)
+- Deepgram Nova-3: https://deepgram.com/learn/introducing-nova-3-speech-to-text-api
+- Deepgram multilingual code-switching: https://developers.deepgram.com/docs/multilingual-code-switching
+- Deepgram Nova-3 multilingual update (Feb 2026): https://deepgram.com/learn/nova-3-multilingual-major-wer-improvements-across-languages
+- VoicePing bilingual Whisper architecture: https://voiceping.net/en/blog/whisper-production-real-time-dual-language-switching/
 
-### Machine Translation
-- Costa-jussa, M.R. et al. (2024). "No Language Left Behind." *Nature*. https://www.nature.com/articles/s41586-024-07335-x
-- GemmaX2-28 (NAACL 2025): https://arxiv.org/abs/2502.02481
+### Code-Switching Research
+- CS-FLEURS benchmark (2025): https://arxiv.org/abs/2509.14161
+- SwitchLingua (NeurIPS 2025): https://openreview.net/forum?id=N5BB7Or30g
+- Code-Switching in End-to-End ASR survey (2025): https://arxiv.org/html/2507.07741v1
 
 ### Simultaneous Translation
 - SASST -- Syntax-Aware Simultaneous Speech Translation (2025): https://arxiv.org/html/2508.07781v1
@@ -371,3 +370,11 @@ From nemawashi to the whole organisation.
 ### Google Meet Integration
 - Google Meet Media API (Developer Preview): https://developers.google.com/workspace/meet/media-api/guides/overview
 - Recall.ai headless browser bot tutorial (2026): https://www.recall.ai/blog/how-i-built-an-in-house-google-meet-bot
+
+### Self-Hosted Alternatives (for future reference)
+- faster-whisper: https://github.com/SYSTRAN/faster-whisper
+- Silero VAD: https://github.com/snakers4/silero-vad
+- NVIDIA Streaming Sortformer (2025): https://arxiv.org/html/2507.18446v1
+- Whisper-Streaming: https://github.com/ufal/whisper_streaming
+- Costa-jussa, M.R. et al. (2024). "No Language Left Behind." *Nature*. https://www.nature.com/articles/s41586-024-07335-x
+- GemmaX2-28 (NAACL 2025): https://arxiv.org/abs/2502.02481

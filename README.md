@@ -1,6 +1,6 @@
 # 言リーフ — Kotoleaf
 
-**Leaves between words. Until the leaves fall.**
+**Leaves between words. Until the roots grow.**
 
 言リーフ (Kotoleaf) is a live bilingual communication tool for English ↔ Japanese meetings — online and in-person. Rather than acting as a translation crutch, Kotoleaf is a language familiar: a spirit companion that interleaves understanding into conversation, teaches as it translates, and gradually fades as both speakers grow.
 
@@ -14,14 +14,16 @@ The goal is its own obsolescence.
 
 ### The Leaf Progression 🍃
 
-Inspired by 言の葉 (*Kotonoha* — "leaves of words"), Kotoleaf's assistance follows a natural lifecycle:
+Inspired by 言の葉 (*Kotonoha* — "leaves of words") and 根回し (*Nemawashi* — "going around the roots," the Japanese practice of building consensus through deep groundwork), Kotoleaf models language learning as a living tree.
 
-- **🌿 Full Leaf** — Dense interleaving. Near-complete translation with vocabulary annotations. For beginners or highly technical discussions.
-- **🌱 Veined Leaf** — Structural support. Key terms, idiomatic expressions, and potential misunderstandings are surfaced. Core meaning is left for the listener.
-- **🍂 Skeleton Leaf** — Minimal intervention. Only rare vocabulary, cultural nuance, or detected misunderstandings trigger an interleaf.
-- **🍁 Fallen Leaf** *(落ち葉)* — The tool goes quiet. You don't need it anymore. Kotoleaf only activates on-demand when you invoke it for a specific phrase or concept.
+A seedling needs many leaves to gather light. As its roots grow deep and wide — spreading through shared vocabulary, cultural understanding, and mutual trust — the tree becomes strong enough that it no longer needs every leaf to sustain itself. The leaves fall not because the tree is dying, but because the roots have taken hold.
 
-Each participant's leaf level is independent and adapts over time.
+- **🌱 Seedling** — Dense canopy. The tree needs all its leaves. Near-complete interleaving with vocabulary annotations, cultural notes, and structural support. For early-stage relationships or highly technical discussions.
+- **🌿 Canopy** — A full, healthy tree. Key terms, idiomatic expressions, and potential misunderstandings are surfaced. Core meaning flows naturally through the roots of shared understanding you've already built.
+- **🌳 Deep Root** — Strong root network, light canopy. Minimal interleaving — only rare vocabulary, cultural nuance, or detected misunderstandings break through the surface. Your nemawashi is well established.
+- **🌲 Evergreen** — The roots run deep between you and your colleagues. Kotoleaf rests quietly in the soil. It's still there when you need it — invoke it for a difficult concept or unfamiliar term — but the connection sustains itself now.
+
+Each participant's growth is independent and adapts over time. The root network is the relationship itself — the shared context, trust, and buy-in you've built through every conversation.
 
 ## How It Works
 

@@ -1,5 +1,5 @@
 <table width="830">
-<tr><td>
+<tr><td width="50%">
 <h1 align="center">Kotoleaf</h1>
 <img width="400" height="1">
 <pre align="center">

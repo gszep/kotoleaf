@@ -45,7 +45,3 @@ The name layers meaning across both languages:
 ## Project Status
 
 🌱 Early development.
-
-## License
-
-TBD

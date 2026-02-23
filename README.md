@@ -26,9 +26,9 @@ Silence speaks at last<br>
 <h2>Philosophy</h2>
 <p>Kotoleaf is not a translator. It's a teacher disguised as one.</p>
 
-<p>The tool monitors live bilingual conversation and <strong>interleaves</strong> contextual support only where it's needed — filling comprehension gaps with targeted subtitles, vocabulary hints, and concept clarifications. It adapts to each speaker's known vocabulary and proficiency, so a beginner sees rich support while an advanced speaker sees only the occasional difficult term surfaced.</p>
+<p>The default is <strong>listening</strong>, not reading. During a bilingual conversation, the screen stays dark. When you notice you're lost, you tap — and receive a concise summary of the last 30 seconds with the confusing term highlighted and explained. Each tap also captures a short audio snippet of the original speech, building a personal flashcard deck grounded in real conversations.</p>
 
-<p>The goal is its own obsolescence.</p>
+<p>The goal is its own obsolescence. You tap less as you grow.</p>
 
 </td>
 <td valign="top" align="left">
@@ -37,9 +37,9 @@ Silence speaks at last<br>
 
 <p>言リーフは翻訳ツールではありません。教師が翻訳の姿を借りているのです。</p>
 
-<p>このツールはバイリンガルの会話をリアルタイムで見守り、必要な箇所にだけ文脈に沿ったサポートを<strong>差し挟み</strong>ます。字幕、語彙のヒント、概念の補足を通じて理解の隙間を埋めます。話者それぞれの語彙力と習熟度に合わせて適応するため、初心者には手厚い支援を、上級者には難しい用語だけを提示します。</p>
+<p>基本は<strong>耳で聞く</strong>こと。画面を見ることではありません。バイリンガルの会話中、画面は暗いままです。迷ったときにタップすると、直前30秒の要約が表示され、困惑の原因となった用語がハイライトされます。タップのたびに、元の音声の短いスニペットも保存され、実際の会話に基づいたフラッシュカードが作られます。</p>
 
-<p>目標は、自らが不要になること。</p>
+<p>目標は、自らが不要になること。タップの回数が減るほど、成長の証。</p>
 
 </td></tr>
 
@@ -52,15 +52,11 @@ Silence speaks at last<br>
 
 <p>A seedling needs many leaves to gather light. As its roots grow deep and wide — spreading through shared vocabulary, cultural understanding, and mutual trust — the tree becomes strong enough that it no longer needs every leaf to sustain itself. The leaves fall not because the tree is dying, but because the roots have taken hold.</p>
 
-<p><strong>🌱 Seedling</strong> — Dense canopy. The tree needs all its leaves. Near-complete interleaving with vocabulary annotations, cultural notes, and structural support. For early-stage relationships or highly technical discussions.</p>
+<p><strong>🌱 Seedling</strong> — Dense canopy. The tree needs all its leaves. Always-on bilingual subtitles stream to your device — training wheels for when you can't yet follow the conversation on your own.</p>
 
-<p><strong>🌿 Canopy</strong> — A full, healthy tree. Key terms, idiomatic expressions, and potential misunderstandings are surfaced. Core meaning flows naturally through the roots of shared understanding you've already built.</p>
+<p><strong>🌳 Listening</strong> — The roots are growing. The screen stays dark — you listen, maintain eye contact, and engage naturally. When you're lost, you reach for a leaf: tap to reveal a 30-second context summary with the confusing term explained. Each tap captures an audio snippet for later review. As your roots deepen, you tap less. Eventually, Kotoleaf rests quietly in the soil.</p>
 
-<p><strong>🌳 Deep Root</strong> — Strong root network, light canopy. Minimal interleaving — only rare vocabulary, cultural nuance, or detected misunderstandings break through the surface. Your nemawashi is well established.</p>
-
-<p><strong>🌲 Evergreen</strong> — The roots run deep between you and your colleagues. Kotoleaf rests quietly in the soil. It's still there when you need it — invoke it for a difficult concept or unfamiliar term — but the connection sustains itself now.</p>
-
-<p>Each participant's growth is independent and adapts over time. The root network is the relationship itself — the shared context, trust, and buy-in you've built through every conversation.</p>
+<p>Each participant's growth is independent. The root network is the relationship itself — the shared context, trust, and buy-in you've built through every conversation.</p>
 
 </td>
 <td valign="top" align="left">
@@ -71,15 +67,11 @@ Silence speaks at last<br>
 
 <p>苗木は光を集めるために多くの葉を必要とします。共有する語彙、文化的理解、相互の信頼を通じて根が深く広く張るにつれ、木はすべての葉に頼らなくても自立できるほど強くなります。葉が落ちるのは木が枯れているからではなく、根がしっかりと根付いたからです。</p>
 
-<p><strong>🌱 苗木</strong> — 密な樹冠。木はすべての葉を必要としています。語彙の注釈、文化的補足、構造的サポートを含むほぼ完全な差し挟みを行います。関係構築の初期段階や、高度に専門的な議論に適しています。</p>
+<p><strong>🌱 苗木</strong> — 密な樹冠。木はすべての葉を必要としています。バイリンガル字幕が常に表示されます ― まだ会話を自力で追えない時期の補助輪です。</p>
 
-<p><strong>🌿 樹冠</strong> — 豊かに茂った健やかな木。重要な用語、慣用表現、誤解の可能性がある箇所を提示します。すでに築いた共通理解という根を通じて、核となる意味は自然に伝わります。</p>
+<p><strong>🌳 傾聴</strong> — 根が育っています。画面は暗いまま ― 耳で聞き、目を合わせ、自然に会話に参加します。迷ったときに葉に手を伸ばします：タップすると直前30秒の文脈要約が表示され、困惑の原因となった用語が説明されます。タップのたびに復習用の音声スニペットも保存されます。根が深まるほどタップは減ります。やがて言リーフは静かに土の中で休みます。</p>
 
-<p><strong>🌳 深根</strong> — 強い根のネットワーク、軽やかな樹冠。差し挟みは最小限に ― 珍しい語彙、文化的ニュアンス、検出された誤解のみが表面に現れます。根回しは十分にできています。</p>
-
-<p><strong>🌲 常緑</strong> — あなたと同僚の間に深く根が張っています。言リーフは静かに土の中で休んでいます。必要なときにはいつでも ― 難しい概念や馴染みのない用語のために呼び出せます ― しかし、つながりはもう自力で維持されています。</p>
-
-<p>それぞれの参加者の成長は独立しており、時間とともに適応します。根のネットワークとは関係そのもの ― あらゆる会話を通じて築いてきた共有の文脈、信頼、そして合意です。</p>
+<p>それぞれの参加者の成長は独立しています。根のネットワークとは関係そのもの ― あらゆる会話を通じて築いてきた共有の文脈、信頼、そして合意です。</p>
 
 </td></tr>
 
@@ -89,11 +81,11 @@ Silence speaks at last<br>
 <h2>How It Works</h2>
 
 <ol>
-<li><strong>Live speech recognition</strong> captures both sides of the conversation in their original language.</li>
-<li><strong>Comprehension modeling</strong> tracks each participant's vocabulary and estimates understanding in real-time.</li>
-<li><strong>Misunderstanding detection</strong> identifies moments where meaning is likely to be lost — false cognates, ambiguous grammar, cultural context gaps, or missing vocabulary.</li>
-<li><strong>Interleaving</strong> inserts targeted support (subtitles, glosses, concept notes) only at detected gaps, calibrated to each participant's current leaf level.</li>
-<li><strong>Vocabulary tracking</strong> records new words each participant successfully comprehends in context, progressively reducing future interventions.</li>
+<li><strong>Live speech recognition</strong> captures both sides of the conversation, maintaining a rolling transcript and audio buffer.</li>
+<li><strong>Listen naturally</strong> — the screen stays dark. You focus on the person, not the device.</li>
+<li><strong>Tap when lost</strong> — a 30-second bilingual context summary appears, with the likely confusing term highlighted.</li>
+<li><strong>Audio flashcards</strong> — each tap saves the confusing term with a short clip of the original speech for post-meeting review.</li>
+<li><strong>Growth tracking</strong> — tap frequency decreases over time as comprehension deepens. The leaves fall as the roots grow.</li>
 </ol>
 
 </td>
@@ -102,11 +94,11 @@ Silence speaks at last<br>
 <h2>仕組み</h2>
 
 <ol>
-<li><strong>リアルタイム音声認識</strong> — 会話の両側をそれぞれの元の言語で捉えます。</li>
-<li><strong>理解度モデリング</strong> — 各参加者の語彙を追跡し、リアルタイムで理解度を推定します。</li>
-<li><strong>誤解検出</strong> — 意味が失われやすい瞬間を特定します。偽の同族語、曖昧な文法、文化的文脈の欠落、語彙の不足などです。</li>
-<li><strong>差し挟み（インターリーブ）</strong> — 検出された隙間にのみ、各参加者の現在の葉の段階に合わせたサポート（字幕、注釈、概念の補足）を挿入します。</li>
-<li><strong>語彙トラッキング</strong> — 各参加者が文脈の中で正しく理解した新しい単語を記録し、将来の介入を段階的に減らしていきます。</li>
+<li><strong>リアルタイム音声認識</strong> — 会話の両側を捉え、トランスクリプトと音声のローリングバッファを維持します。</li>
+<li><strong>自然に聞く</strong> — 画面は暗いまま。デバイスではなく、目の前の人に集中します。</li>
+<li><strong>迷ったらタップ</strong> — 直前30秒のバイリンガル文脈要約が表示され、困惑の原因となった用語がハイライトされます。</li>
+<li><strong>音声フラッシュカード</strong> — タップのたびに、元の音声の短いクリップとともに用語が保存され、会議後の復習に使えます。</li>
+<li><strong>成長記録</strong> — 理解が深まるにつれてタップの頻度が減少します。葉が落ち、根が育つ。</li>
 </ol>
 
 </td></tr>

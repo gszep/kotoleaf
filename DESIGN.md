@@ -32,12 +32,10 @@ In all modes, the ASR pipeline runs continuously in the background, maintaining 
 
 Each participant operates in one of two interaction modes, independent of meeting type:
 
-- **Seedling mode** (always-on subtitles) -- for beginners who cannot follow the conversation without continuous support. Full bilingual subtitles stream to their device. This is the training-wheels mode; the goal is to leave it as soon as possible.
-- **Listening mode** (tap-to-reveal) -- the default for intermediate and above. The screen stays off. The participant listens naturally, maintains eye contact, and engages in the conversation. When they notice they're lost, they tap the device to receive a compressed bilingual summary of the last ~30 seconds with difficult terms highlighted. The tap itself is a learning signal -- it marks a genuine moment of confusion.
+- **Seedling mode** (rolling summaries) -- for beginners and intermediate learners who benefit from continuous support. Instead of always-on subtitles (which become a crutch that hinders listening comprehension), the device displays a rolling bilingual summary of the conversation. Each participant sees summaries in their weaker language only, reinforcing L2 reading comprehension as a parallel learning channel. Summaries update adaptively -- triggered by new substantive utterances rather than a fixed timer -- and highlight what's new since the last round. Tapping drills down from the summary into the raw bilingual context with the confusing term highlighted and explained.
+- **Listening mode** (tap-to-reveal) -- the default for advanced participants. The screen stays off. The participant listens naturally, maintains eye contact, and engages in the conversation. When they notice they're lost, they tap the device to receive a compressed bilingual context summary with difficult terms highlighted. The tap itself is a learning signal -- it marks a genuine moment of confusion.
 
-The transition from Seedling to Listening mode is the most meaningful growth milestone. It can be self-selected by the participant or suggested by the system after detecting low subtitle engagement.
-
-**Full subtitles on demand**: In any interaction mode, a participant can temporarily switch to full always-on subtitles -- for example, when an English speaker is pitching to Japanese executives and wants maximum support. This is an explicit override, not the default.
+The transition from Seedling to Listening mode is the most meaningful growth milestone. It represents a shift from "I need ongoing support to follow this conversation" to "I can follow on my own and only need help at specific moments." It can be self-selected by the participant or suggested by the system after detecting low summary engagement.
 
 ## Architecture
 
@@ -48,8 +46,10 @@ Three processing layers named for the metaphor: Ear (perception), Mind (understa
 |                                                                     |
 |  +--[ Kotoleaf Web App ]----------------------------------------+  |
 |  |                                                              |  |
-|  |  Tap-to-reveal meeting view (dark by default)                |  |
-|  |  30s context summary on tap                                  |  |
+|  |  Rolling summary view (Seedling) / dark screen (Listening)   |  |
+|  |  Tap-to-reveal drill-down with bilingual context             |  |
+|  |  Portrait: split-flip (JP top 180°, EN bottom)               |  |
+|  |  Landscape: side-by-side (EN left, JP right)                 |  |
 |  |  +--[ Flashcard Review Mode ]--+                             |  |
 |  |  | FSRS spaced repetition      |                             |  |
 |  |  | Cards with audio snippets   |                             |  |
@@ -65,12 +65,12 @@ Three processing layers named for the metaphor: Ear (perception), Mind (understa
 |  |                                                                | |
 |  |  Ear ────────> Mind ────────> Tongue                           | |
 |  |  - Deepgram     - Confusion         - Google Cloud NMT         | |
-|  |    Nova-3 API     estimator           (on-demand or streaming) | |
-|  |    (ASR +       - Misunderstanding  - Claude Haiku 4.5         | |
-|  |    diarization    detection           (context compression,    | |
-|  |    + LID)         (silent nudge)      on tap only)             | |
-|  |  - Rolling      - Growth tracking  - Tap-to-reveal UI         | |
-|  |    audio buffer - Glossary lookup  - Audio snippet capture     | |
+|  |    Nova-3 API     estimator           (translation)            | |
+|  |    (ASR +       - Global/local      - Claude Haiku 4.5         | |
+|  |    diarization    context mgmt        (rolling summaries,      | |
+|  |    + LID)       - Growth tracking     tap drill-down)          | |
+|  |  - Rolling      - Glossary lookup  - Split-flip display        | |
+|  |    audio buffer                    - Audio snippet capture     | |
 |  +---+-------------------+-------------------+--------------------+ |
 |      |                   |                   |                      |
 |  +---+-------+  +--------+-----------+  +----+-------------+       |
@@ -113,23 +113,36 @@ The intelligence layer. Maintains per-participant state and detects moments that
 - **Glossary Lookup** -- checks terms against the institutional glossary (ChibaTech-specific abbreviations, project names, domain terminology) and any per-meeting session glossary from uploaded materials
 - **Growth Tracking** -- monitors tap frequency over time as the primary growth signal. A participant whose taps decrease from 15/meeting to 3/meeting over weeks is demonstrably growing, and the data comes free from natural interaction.
 
-The Mind's output differs by interaction mode: in Seedling mode, it decides which terms to annotate in the subtitle stream. In Listening mode, it produces silent nudges and, on tap, identifies the confusing segment for the context summary.
+The Mind's output differs by interaction mode: in Seedling mode, it maintains the two-tier context (global + local) and triggers summarization rounds based on new substantive utterances. In Listening mode, it produces silent nudges and, on tap, identifies the confusing segment for the context summary. In both modes, tap events feed the participant's vocabulary database.
 
 ### Tongue (Expression)
 
 Produces output appropriate to each participant's interaction mode.
 
-#### Seedling Mode (always-on subtitles)
+#### Seedling Mode (rolling summaries)
 
-For participants who cannot yet follow the conversation without continuous support:
+For participants who benefit from continuous support. Instead of always-on subtitles, Seedling mode provides a rolling summary of the conversation that each participant reads in their weaker language -- reinforcing L2 reading comprehension as a parallel learning channel.
 
-- **Google Cloud Translation v3** (NMT or Gemini-powered TLLM) delivers the primary subtitle stream at ~50-100ms latency, $20/million characters with a 500K chars/month free tier. Adaptive Translation can be steered with example sentence pairs for consistent register.
-- Full bilingual subtitles with vocabulary annotations and readings for every utterance.
-- All encountered terms are passively captured for the vocabulary database.
+The summarization system uses a **two-tier context architecture**:
+
+- **Global context** -- a priority-ordered free-form list of key facts, decisions, and reference points accumulated over the entire conversation. This list is injected into every summarization round so the LLM maintains awareness of important information from earlier in the conversation without needing the full transcript history. Items can be added, updated, corrected, reordered, or removed as the conversation evolves. Hard cap of ~15 items; when a new crucial item arrives, it displaces the lowest-priority item.
+- **Local context** -- the raw transcript from the last ~30 seconds (the most recent substantive utterances), providing immediate conversational context.
+
+Each summarization round:
+
+1. **Claude Haiku 4.5** receives the current global context list + the local transcript window.
+2. Claude produces: a bilingual summary of new information (EN + JP), an updated global context list (full replacement), and an `is_new` flag.
+3. The output is structured as a tool call (similar to a todo list update), enabling schema validation and clean state management.
+4. If `is_new: true`, the display updates with the new summary line highlighted and previous lines dimmed. If `is_new: false`, no display update occurs.
+5. All terms surfaced in summaries are passively captured for the vocabulary database.
+
+**Summarization trigger**: rounds are triggered adaptively by new substantive utterances (configurable threshold, default: 3 utterances of ≥5 words or ≥3 seconds duration), with a maximum interval ceiling (~45 seconds) and a minimum cooldown (~8 seconds). This filters backchanneling and aizuchi while ensuring updates during long monologues.
+
+**Google Cloud Translation v3** (NMT or Gemini-powered TLLM) handles translation within the summarization pipeline. $20/million characters with a 500K chars/month free tier.
 
 #### Listening Mode (tap-to-reveal)
 
-The default for intermediate and above. The screen stays dark. The participant listens, maintains eye contact, and engages naturally. When they tap:
+The default for advanced participants. The screen stays dark. The participant listens, maintains eye contact, and engages naturally. When they tap:
 
 1. The Ear's rolling transcript buffer provides the last ~30 seconds of conversation with word-level timestamps.
 2. The Mind's confusion estimator identifies the likely problematic term or phrase based on the tap timestamp, the participant's vocabulary state, and term difficulty.
@@ -138,6 +151,22 @@ The default for intermediate and above. The screen stays dark. The participant l
 5. The device displays the summary for a few seconds, then auto-dims.
 6. The confusing term, its context sentence, and a **short audio snippet** (clipped from the rolling audio buffer using Deepgram's word-level timestamps) are saved to the participant's vocabulary database for post-meeting flashcard review.
 
+#### Tap as Drill-Down (Both Modes)
+
+In Seedling mode, tap serves as a **drill-down** from the rolling summary into raw bilingual context. The participant reads a summary line in their weak language, doesn't fully understand it, and taps to see the specific transcript segment with the confusing term highlighted and explained. This unifies the tap interaction across both modes:
+
+- **Seedling**: summary visible → tap drills into detail → returns to summary
+- **Listening**: screen dark → tap reveals context summary → screen dims
+
+In both modes, the tap location on the display determines **which participant** is confused:
+
+- **Tap on JP side** (portrait top / landscape right) → the EN-native learner needs clarification. The confusing Japanese term and context are saved to their vocabulary database.
+- **Tap on EN side** (portrait bottom / landscape left) → the JP-native learner needs clarification. The confusing English term and context are saved to their vocabulary database.
+
+The physical layout of the device is the user identification system -- no login or session setup is needed to track per-participant vocabulary in Phase 1.
+
+**Tap debouncing**: taps are debounced with a ~5-second cooldown. If the participant taps again while a drill-down is displayed, the context window extends backward rather than generating a new summary. This is cheaper, faster, and more useful for catching moments the participant missed.
+
 #### Silent Nudge
 
 When the Mind detects a likely misunderstanding in Listening mode (false cognates, culturally loaded expressions, ambiguous grammar), the device **vibrates without showing anything**. The participant can choose to tap or to keep listening. This preserves the listen-first default while flagging moments that deserve attention.
@@ -145,6 +174,36 @@ When the Mind detects a likely misunderstanding in Listening mode (false cognate
 #### Per-User Filter
 
 The lightweight step that makes personalisation cheap. The heavy work (ASR, translation) is shared across all participants. The filter operates on tap events -- "this participant tapped at timestamp T, here are the terms they likely didn't know" -- rather than filtering every utterance in real time.
+
+### Display Model
+
+The display layout adapts to device orientation, serving both single-viewer and shared-device use cases.
+
+#### Portrait (phone flat on table between two speakers)
+
+The phone is placed flat on the table as a shared artifact. The screen splits horizontally at the midline:
+
+- **Top half**: Japanese text, rotated 180° (readable by the person sitting across the table). Text grows from the top edge toward the center -- newest content appears closest to the JP-side reader.
+- **Bottom half**: English text, right-side up. Text grows from the bottom edge toward the center -- newest content appears closest to the EN-side reader.
+
+Each participant sees only their **weaker language** on their side -- the EN-native reads Japanese summaries, the JP-native reads English summaries. The summary itself becomes L2 reading practice, with tap available as a safety net.
+
+Layout is hardcoded (JP top, EN bottom). Participants rotate the phone if needed.
+
+#### Landscape (tablet or shared screen)
+
+Two columns, both right-side up:
+
+- **Left column**: English summaries
+- **Right column**: Japanese summaries
+
+Suitable for tablets, laptops, or shared displays where both participants face the same direction.
+
+#### Delta Highlighting
+
+In both orientations, the display highlights what's new since the last summarization round. Previous summary lines are dimmed but remain visible. This allows participants to see both "what's happening now" and "what happened earlier" at a glance without the distraction of a full refresh.
+
+When `is_new: false` (no new information since last round), the display does not update -- avoiding unnecessary visual changes during pauses or backchanneling.
 
 ## Growth System
 
@@ -169,7 +228,7 @@ Tags:      [business, ChibaTech, approval-process]
 
 The audio snippet is the key differentiator from traditional flashcards. Hearing the term in the original speaker's voice, accent, speed, and conversational context provides listening practice that isolated audio recordings cannot match. Snippets are clipped from the Ear's rolling audio buffer using Deepgram's word-level timestamps, typically 2-5 seconds centered on the target term.
 
-In Seedling mode, vocabulary is captured passively for all encountered terms (no tap signal), but without audio snippets to keep storage manageable.
+In Seedling mode, vocabulary is captured through two channels: passively from terms surfaced in rolling summaries, and actively from tap drill-downs (which produce the same high-quality confusion signal as Listening mode taps, including audio snippets). Since each participant reads summaries in their weaker language, the terms they tap on are precisely the vocabulary they need to learn.
 
 ### Spaced Repetition (FSRS)
 
@@ -246,12 +305,13 @@ The default (vocab + snippets) retains only the short audio clips associated wit
 
 ## AI Provider Strategy
 
-API-first architecture. In Listening mode (tap-to-reveal), the system only calls translation and LLM APIs when the participant taps -- dramatically reducing cost compared to always-on translation. In Seedling mode, Google Cloud Translation runs continuously but Claude is not needed for every utterance.
+API-first architecture. In Listening mode (tap-to-reveal), the system only calls translation and LLM APIs when the participant taps -- dramatically reducing cost compared to per-utterance processing. In Seedling mode, Claude runs periodic summarization rounds triggered by new substantive utterances, with Google Cloud Translation handling the bilingual output.
 
 | Task | Provider | Model | Cost | Latency | When |
 |------|----------|-------|------|---------|------|
 | Speech recognition + diarization + language detection | Deepgram | Nova-3 multilingual | ~$0.67/hr | <300ms streaming | Always (both modes) |
-| Subtitle translation (Seedling mode) | Google Cloud Translation v3 | NMT (or TLLM) | ~$0.10-0.15/hr | ~50-100ms | Seedling: continuous |
+| Rolling summary generation (Seedling mode) | Anthropic | Claude Haiku 4.5 | ~$0.30-0.65/hr | ~800-1500ms | Seedling: every 3+ utterances |
+| Summary translation (Seedling mode) | Google Cloud Translation v3 | NMT (or TLLM) | ~$0.05-0.10/hr | ~50-100ms | Seedling: per round |
 | Context summary translation (Listening mode) | Google Cloud Translation v3 | NMT (or TLLM) | ~$0.01-0.05/hr | ~50-100ms | Listening: on tap |
 | Context compression + confusion estimation | Anthropic | Claude Haiku 4.5 | ~$0.02-0.10/hr | ~800-1500ms | Listening: on tap |
 | Misunderstanding detection | Anthropic | Claude Haiku 4.5 | ~$0.05-0.15/hr | inline | Both modes |
@@ -259,15 +319,15 @@ API-first architecture. In Listening mode (tap-to-reveal), the system only calls
 | Meeting materials analysis | Anthropic | Claude Sonnet 4.6 | per-meeting, negligible | pre-meeting | Pre-meeting |
 | Flashcard generation + audio clipping | Anthropic | Claude Haiku 4.5 | ~$0.03/meeting | post-meeting | Post-meeting |
 
-Estimated total cost: **~$0.75-1.00/hr in Listening mode**, **~$1.00-1.50/hr in Seedling mode**. Listening mode is cheaper because translation and LLM calls are on-demand rather than continuous.
+Estimated total cost: **~$0.75-1.00/hr in Listening mode**, **~$1.05-1.45/hr in Seedling mode**. Listening mode is cheaper because Claude is only called on tap. Seedling mode calls Claude for periodic summarization rounds (adaptive, roughly every 10-30 seconds depending on conversation pace), but this is still dramatically cheaper than per-utterance processing because the two-tier context architecture keeps input tokens small (~1000 tokens/round: global context + local transcript + system prompt).
 
-**Why the tap-to-reveal model changes cost dynamics:** In Listening mode, Claude is only called when the participant taps -- perhaps 5-15 times per hour rather than on every utterance (~10 calls/minute in the old always-on design). This makes Claude's 800-1500ms latency a non-issue (the participant is waiting for a thoughtful summary, not streaming subtitles) and reduces API cost by 10-50x for the LLM tier.
+**Why the tap-to-reveal model changes cost dynamics:** In Listening mode, Claude is only called when the participant taps -- perhaps 5-15 times per hour. This makes Claude's 800-1500ms latency a non-issue (the participant is waiting for a thoughtful summary, not streaming subtitles). In Seedling mode, Claude is called per summarization round (~120-360 times/hr depending on conversation density), but with small payloads and structured output (tool call pattern). The per-round cost is ~$0.002, making Claude's contribution to Seedling mode ~$0.30-0.65/hr.
 
 **Why Google Cloud Translation?** ChibaTech is a Google Workspace organisation, so Google Cloud Translation shares billing, IAM, and Cloud Storage with the rest of the GCP stack. NMT pricing ($20/M chars) is competitive, with a free tier of 500K chars/month. The Gemini-powered TLLM model offers higher quality at the same effective price. Adaptive Translation can be steered with example sentence pairs for consistent register -- a lighter-weight customisation path than training custom models. Google explicitly does not store or train on API-submitted text.
 
 **Google Cloud Translation models**: NMT ($20/M chars) is fastest and cheapest -- start here. TLLM (Gemini-powered, $10/M input + $10/M output) offers higher quality if needed. Adaptive Translation ($25/M input + $25/M output) steers with example sentence pairs for consistent register.
 
-**Implementation notes**: Japanese text uses 2-4x more LLM tokens than English (cost estimates account for this). Anthropic prompt caching (90% cost reduction) is a nice-to-have in Listening mode (5-15 taps/hr) but important for Seedling mode with Claude enrichment (Phase 2+). Gemini may be added later for meeting materials ingestion (1M context, multimodal). All API providers are SOC 2 Type II and GDPR compliant.
+**Implementation notes**: Japanese text uses 2-4x more LLM tokens than English (cost estimates account for this). Anthropic prompt caching (90% cost reduction) is valuable for Seedling mode summarization rounds (~120-360 calls/hr with similar system prompts) and useful in Listening mode (5-15 taps/hr). Gemini may be added later for meeting materials ingestion (1M context, multimodal). All API providers are SOC 2 Type II and GDPR compliant.
 
 ## Tech Stack
 
@@ -302,7 +362,7 @@ Scaling is handled by Deepgram's infrastructure, not ours. No GPU provisioning, 
 |----------|-------------|-------------|--------|
 | Nemawashi (1-to-1) | 2 | Per-person mode (Seedling or Listening) | ~1.0x base |
 | Small meeting (in-person) | 3-5 | Per-person mode | ~1.05x base |
-| Meet call (6+) | 6+ | Full subtitles for all (Seedling-equivalent) | ~1.0x base |
+| Meet call (6+) | 6+ | Rolling summaries for all (Seedling-equivalent) | ~1.0x base |
 
 ## English-Japanese Specific Challenges
 
@@ -320,30 +380,36 @@ These are known hard problems that the design must account for:
 
 The simplest thing that is useful: two people, one conversation, a safety net when you're lost.
 
-- Web app with tap-to-reveal interface (dark screen by default, tap for 30s context summary)
-- Seedling mode also available (always-on subtitles for beginners)
+- Web app with both interaction modes:
+  - **Seedling mode**: rolling bilingual summaries with two-tier context (global + local), adaptive summarization trigger, delta highlighting
+  - **Listening mode**: dark screen with tap-to-reveal context summaries
+  - Tap as drill-down in Seedling, tap as reveal in Listening
+- Portrait split-flip display (JP top 180°, EN bottom) + landscape side-by-side (EN left, JP right)
+- Side-based participant identification: tap location determines which participant's vocabulary database receives the confusion event
 - 1-to-1 mode only (2 participants)
 - Deepgram Nova-3 multilingual streaming ASR with code-switching + rolling audio buffer
-- Google Cloud Translation v3 for on-demand translation of tapped segments (~50-100ms)
-- Claude Haiku 4.5 for context compression on tap (concise bilingual summary with confusing term highlighted)
+- Google Cloud Translation v3 for translation (~50-100ms)
+- Claude Haiku 4.5 for context compression on tap and rolling summarization (tool call output with global context management)
 - Google SSO login
-- Basic vocab capture from taps: term, context sentence, and audio snippet saved to user database (no SRS scheduling yet)
+- Basic vocab capture from taps: term, context sentence, and audio snippet saved to per-participant database (no SRS scheduling yet)
 - In-person only (device microphones)
+- Configurable summarization thresholds (utterance count, word/duration minimums, interval bounds)
 
-**Not in Phase 1**: FSRS scheduling, flashcard review UI, misunderstanding detection (silent nudge), institutional glossary. Phase 1 validates the core interaction: does tap-to-reveal with rich context summaries help people have better bilingual conversations?
+**Not in Phase 1**: FSRS scheduling, flashcard review UI, misunderstanding detection (silent nudge), institutional glossary, sentiment analysis, targeted drill-down (tapping specific summary phrases). Phase 1 validates the core interaction: do rolling summaries in L2 + tap-to-reveal drill-downs help people have better bilingual conversations?
 
-**Success metric**: two ChibaTech colleagues have a bilingual nemawashi conversation in Listening mode and both report that (a) they felt more present in the conversation than with always-on subtitles, and (b) the tap-to-reveal summaries helped when they got lost.
+**Success metric**: two ChibaTech colleagues have a bilingual nemawashi conversation and both report that (a) they felt more present in the conversation than with always-on subtitles, (b) the rolling summaries helped them follow along in their weaker language, and (c) the tap drill-down clarified moments of confusion.
 
 ### Phase 2 -- The Teacher
 
 The roots start to grow.
 
 - FSRS flashcard review system in the web app, with in-situ audio snippet playback
-- Claude Haiku 4.5 for context compression on tap (richer 30s summaries) and misunderstanding detection (silent nudge)
 - Growth level calculation from tap frequency trend + FSRS vocabulary state
 - "Known Forever" marking
 - Import existing FSRS state from Anki (`.apkg`/`.colpkg`), FSRS-compatible apps (JSON/CSV), or plain vocabulary lists
-- Silent nudge feature (device vibrates on detected misunderstanding, participant chooses whether to tap)
+- Silent nudge feature: misunderstanding detection via Claude (device vibrates on detected false cognates, culturally loaded expressions, ambiguous grammar -- participant chooses whether to tap)
+- **Targeted drill-down**: tappable phrases within rolling summaries. Instead of a generic tap, the participant taps a specific summary phrase to drill into that exact transcript segment. Requires Claude to output anchor references linking summary phrases to transcript timestamps.
+- **Sentiment analysis from audio layer**: prosody, hesitation, pitch, and breath timing carry more honest sentiment signal than text (especially through the tatemae filter in Japanese business communication). Audio-layer sentiment is a fundamentally different feature from text summarization and benefits from dedicated audio analysis rather than LLM text inference.
 
 **Success metric**: a participant who reviews flashcards with audio snippets regularly shows decreasing tap frequency over weeks of meetings, matching their actual comprehension growth. They transition from Seedling to Listening mode and stay there.
 
@@ -364,7 +430,7 @@ From nemawashi to the whole organisation.
 
 - Scale to 3-5 participant in-person meetings (already supported by Deepgram diarization)
 - Google Meet bot integration
-- Full-subtitle mode for larger calls (6+ participants) where tap-to-reveal is impractical
+- Rolling summary mode for all participants in larger calls (6+ participants) on individual devices
 - Data retention controls (vocab + snippets / summary / full transcript / full + audio)
 - Evaluate self-hosted ASR/translation for privacy-sensitive deployments (optional migration path)
 

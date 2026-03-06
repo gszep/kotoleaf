@@ -4,19 +4,21 @@
 
 ChibaTech is a bilingual English/Japanese organisation. For large events we use [Flitto](https://flitto.jp) for live simultaneous translation. Flitto's strengths -- context-buffered translation, custom glossaries, and natural-sounding output -- are exactly what we want. But their event-oriented pricing makes them impractical for day-to-day meetings, and sending institutional knowledge to a third party raises privacy concerns.
 
-Kotoleaf is an in-house tool that brings the best of Flitto and the broader simultaneous translation landscape into a system we own, while pursuing a fundamentally different goal: not just translating, but teaching. The leaves fall as the roots grow.
+Kotoleaf is an in-house tool that brings the best of Flitto and the broader simultaneous translation landscape into a system we own, while pursuing a fundamentally different goal: not translating, but *interpreting* and teaching. An interpreter brings cultural intelligence, relationship awareness, and contextual judgment that raw translation strips away. The leaves fall as the roots grow.
 
 ## Design Principles
 
 1. **The roots, not the leaves, are the goal.** Every feature should strengthen the root network -- shared vocabulary, cultural understanding, mutual trust -- between participants. Translation is the means, not the end.
 
-2. **Listen first.** The default is listening, not reading. Always-on subtitles become a crutch that hinders the listening comprehension Kotoleaf exists to develop (Bjork, 1994; Cárdenas & Ramírez Orellana, 2024). Subtitles are a safety net, not the floor -- available on demand when the participant notices they're lost. Looking at a screen during nemawashi breaks eye contact and weakens the human connection the meeting exists to build.
+2. **Listen first, device last.** The default is listening, not reading -- and never touching the device. Always-on subtitles become a crutch that hinders the listening comprehension Kotoleaf exists to develop (Bjork, 1994; Cárdenas & Ramírez Orellana, 2024). Rolling summaries are a glanceable safety net, not the floor. Touching the phone during nemawashi encourages technology interaction at the expense of human connection -- the very thing the meeting exists to build. When a participant is confused, they clarify naturally ("もう一度お願いします", "could you clarify that?") and the system detects these moments automatically for post-meeting learning.
 
 3. **Privacy where it matters.** Meeting audio is sent to Deepgram for ASR; transcript text is sent to Google Cloud Translation (real-time NMT) and Anthropic (contextual intelligence) for processing -- all are SOC 2 Type II and GDPR compliant. Short audio snippets (a few seconds each) are retained per vocabulary term for flashcard review; full audio is discarded unless the organiser opts in. Vocabulary data, institutional glossary, and growth state remain on ChibaTech's GCP infrastructure.
 
 4. **Nemawashi-first design.** The system is designed around 1-to-1 bilingual conversation (nemawashi) as the primary use case. If it works beautifully for two people building consensus, everything else scales from there.
 
 5. **Symmetric.** English and Japanese are treated as equal. The system serves both directions with equal care.
+
+6. **Interpreter, not translator.** Translation converts words. Interpretation conveys meaning, register, and cultural context. Kotoleaf calibrates its output to the relationship between participants -- their shared history, organizational hierarchy, and the natural progression from formal to casual as trust builds through nemawashi. Default LLM Japanese skews toward stiff 丁寧語/敬語 regardless of context; the interpreter actively counteracts this by tracking formality signals and matching the register participants actually use with each other.
 
 ## Modes of Operation
 
@@ -26,16 +28,15 @@ Kotoleaf is an in-house tool that brings the best of Flitto and the broader simu
 | **Small meeting** (in-person) | 3-5 | Device or room microphones, server diarizes |
 | **Meet call** (6+) | 6+ | Google Meet bot captures all audio |
 
-In all modes, the ASR pipeline runs continuously in the background, maintaining a rolling transcript buffer. Vocabulary from tap events feeds into each authenticated user's personal database.
+In all modes, the ASR pipeline runs continuously in the background, maintaining a rolling transcript buffer. The system detects natural clarification utterances and timestamps them for post-meeting vocabulary learning.
 
-### Interaction Modes
+### Display
 
-Each participant operates in one of two interaction modes, independent of meeting type:
+Each participant's device displays a rolling bilingual summary of the conversation. Participants see summaries in their weaker language, reinforcing L2 reading comprehension as a parallel learning channel. Summaries update adaptively -- triggered by new substantive utterances rather than a fixed timer -- and highlight what's new since the last round.
 
-- **Seedling mode** (rolling summaries) -- for beginners and intermediate learners who benefit from continuous support. Instead of always-on subtitles (which become a crutch that hinders listening comprehension), the device displays a rolling bilingual summary of the conversation. Each participant sees summaries in their weaker language only, reinforcing L2 reading comprehension as a parallel learning channel. Summaries update adaptively -- triggered by new substantive utterances rather than a fixed timer -- and highlight what's new since the last round. Tapping drills down from the summary into the raw bilingual context with the confusing term highlighted and explained.
-- **Listening mode** (tap-to-reveal) -- the default for advanced participants. The screen stays off. The participant listens naturally, maintains eye contact, and engages in the conversation. When they notice they're lost, they tap the device to receive a compressed bilingual context summary with difficult terms highlighted. The tap itself is a learning signal -- it marks a genuine moment of confusion.
+There is no tap interaction, no separate listening mode, no device interaction during the conversation. The participant listens, maintains eye contact, and glances at the summary when needed -- like glancing at a clock. Moments of confusion are expressed naturally through clarification utterances ("もう一度お願いします", "sorry, what does that mean?"), which the system detects and timestamps for post-meeting vocabulary learning.
 
-The transition from Seedling to Listening mode is the most meaningful growth milestone. It represents a shift from "I need ongoing support to follow this conversation" to "I can follow on my own and only need help at specific moments." It can be self-selected by the participant or suggested by the system after detecting low summary engagement.
+The most meaningful growth milestone is when the participant stops needing the summary at all -- measured by decreasing clarification frequency over weeks, not by a mode switch.
 
 ## Architecture
 
@@ -46,9 +47,9 @@ Three processing layers named for the metaphor: Ear (perception), Mind (understa
 |                                                                     |
 |  +--[ Kotoleaf Web App ]----------------------------------------+  |
 |  |                                                              |  |
-|  |  Rolling summary view (Seedling) / dark screen (Listening)   |  |
-|  |  Tap-to-reveal drill-down with bilingual context             |  |
-|  |  Portrait: split-flip (JP top 180°, EN bottom)               |  |
+|  |  Rolling bilingual summary view                              |  |
+|  |  Kanji assist (furigana + color-linked EN equivalents)       |  |
+|  |  Portrait: split-flip (JP top 180°, EN bottom) or solo       |  |
 |  |  Landscape: side-by-side (EN left, JP right)                 |  |
 |  |  +--[ Flashcard Review Mode ]--+                             |  |
 |  |  | FSRS spaced repetition      |                             |  |
@@ -64,13 +65,13 @@ Three processing layers named for the metaphor: Ear (perception), Mind (understa
 |  +--[ Kotoleaf Server (no GPU) ]----------------------------------+ |
 |  |                                                                | |
 |  |  Ear ────────> Mind ────────> Tongue                           | |
-|  |  - Deepgram     - Confusion         - Google Cloud NMT         | |
-|  |    Nova-3 API     estimator           (translation)            | |
-|  |    (ASR +       - Global/local      - Claude Haiku 4.5         | |
-|  |    diarization    context mgmt        (rolling summaries,      | |
-|  |    + LID)       - Growth tracking     tap drill-down)          | |
-|  |  - Rolling      - Glossary lookup  - Split-flip display        | |
-|  |    audio buffer                    - Audio snippet capture     | |
+|  |  - Deepgram     - Clarification     - Google Cloud NMT         | |
+|  |    Nova-3 API     detection           (translation)            | |
+|  |    (ASR +       - Institutional/    - Claude Haiku 4.5         | |
+|  |    diarization    meeting/30s         (rolling summaries)      | |
+|  |    + LID)         context mgmt    - Split-flip display         | |
+|  |  - Rolling      - Growth tracking  - Audio snippet capture     | |
+|  |    audio buffer - Glossary lookup                              | |
 |  +---+-------------------+-------------------+--------------------+ |
 |      |                   |                   |                      |
 |  +---+-------+  +--------+-----------+  +----+-------------+       |
@@ -108,31 +109,30 @@ Cost: ~$0.0092/min ($0.55/hr) for multilingual streaming + $0.0020/min diarizati
 
 The intelligence layer. Maintains per-participant state and detects moments that matter.
 
-- **Confusion Estimator** -- when a participant taps, the Mind identifies which word or phrase most likely caused confusion. It cross-references the tap timestamp against the rolling transcript, the participant's vocabulary database, and term difficulty to produce a best guess. This guess becomes the flashcard candidate.
-- **Misunderstanding Detection** -- continuously monitors the conversation for moments where meaning is likely to be lost: false cognates, ambiguous grammar, cultural context gaps, or concepts that don't translate directly (e.g. detecting that "kentou shimasu" often means "no" rather than the literal "I'll consider it"). In Listening mode, detected misunderstandings trigger a **silent nudge** (device vibration) rather than automatic subtitles -- the participant decides whether to tap.
-- **Glossary Lookup** -- checks terms against the institutional glossary (ChibaTech-specific abbreviations, project names, domain terminology) and any per-meeting session glossary from uploaded materials
-- **Growth Tracking** -- monitors tap frequency over time as the primary growth signal. A participant whose taps decrease from 15/meeting to 3/meeting over weeks is demonstrably growing, and the data comes free from natural interaction.
+- **Clarification Detection** -- monitors the conversation for natural clarification utterances: "もう一度お願いします" (one more time please), "could you clarify that?", "what does X mean?", or any rephrasing request in either language. When detected, the Mind timestamps the moment against the rolling transcript, cross-references the participant's vocabulary database and term difficulty, and identifies the likely problematic term or phrase. These moments become post-meeting flashcard candidates -- genuine confusion signals that emerge from natural conversation rather than device interaction.
+- **Glossary Lookup** -- checks terms against the institutional glossary (ChibaTech-specific abbreviations, project names, domain terminology) and any per-meeting session glossary from uploaded materials.
+- **Growth Tracking** -- monitors clarification frequency over time as the primary growth signal. A participant whose clarification requests decrease from 15/meeting to 3/meeting over weeks is demonstrably growing, and the data comes free from natural conversation.
+- **Relationship Register Model** -- tracks the formality level between conversation partners over time. Default LLM translation produces overly formal Japanese (stiff keigo), which actively distances the relationship and hinders nemawashi. The register model monitors formality signals across conversations: self-introduction patterns (fading out as familiarity grows), pronoun usage shifts (あなた → first-name basis), honorific levels (丁寧語 → casual forms), and organizational hierarchy awareness. This is a slow-moving signal -- evolving over weeks and months, not minutes -- that calibrates the interpreter's output to match the actual relationship register between participants. The model maintains a per-pair formality profile (participant A ↔ participant B) so that the same person's output is formal with a new executive and casual with a long-time colleague.
 
-The Mind's output differs by interaction mode: in Seedling mode, it maintains the two-tier context (global + local) and triggers summarization rounds based on new substantive utterances. In Listening mode, it produces silent nudges and, on tap, identifies the confusing segment for the context summary. In both modes, tap events feed the participant's vocabulary database.
+The Mind maintains the three-tier context architecture (institutional, meeting, and 30-second) and triggers summarization rounds based on new substantive utterances. Detected clarification moments are timestamped and queued for post-meeting vocabulary processing.
 
 ### Tongue (Expression)
 
-Produces output appropriate to each participant's interaction mode.
+Produces the rolling bilingual summaries that each participant reads in their weaker language -- reinforcing L2 reading comprehension as a parallel learning channel.
 
-#### Seedling Mode (rolling summaries)
+#### Rolling Summaries
 
-For participants who benefit from continuous support. Instead of always-on subtitles, Seedling mode provides a rolling summary of the conversation that each participant reads in their weaker language -- reinforcing L2 reading comprehension as a parallel learning channel.
+The summarization system uses a **three-tier context architecture**:
 
-The summarization system uses a **two-tier context architecture**:
-
-- **Global context** -- a priority-ordered free-form list of key facts, decisions, and reference points accumulated over the entire conversation. This list is injected into every summarization round so the LLM maintains awareness of important information from earlier in the conversation without needing the full transcript history. Items can be added, updated, corrected, reordered, or removed as the conversation evolves. Hard cap of ~15 items; when a new crucial item arrives, it displaces the lowest-priority item.
-- **Local context** -- the raw transcript from the last ~30 seconds (the most recent substantive utterances), providing immediate conversational context.
+- **Institutional context** -- organization-level knowledge loaded before the meeting: ChibaTech terminology, team structure, positions, hierarchy, industry vocabulary, and the institutional glossary. Updated rarely (when new terms are added to the glossary or organizational changes occur). Injected into every summarization round as stable background knowledge.
+- **Meeting context** -- per-session knowledge set up at meeting start: relationship register state between the participants, uploaded meeting materials (slides, docs, briefing notes), per-session glossary from extracted terminology, and any cultural briefing notes. Evolves slowly during the conversation as the register model updates.
+- **30-second context** -- the raw transcript from the last ~30 seconds (the most recent substantive utterances), providing immediate conversational context.
 
 Each summarization round:
 
-1. **Claude Haiku 4.5** receives the current global context list + the local transcript window.
-2. Claude produces: a bilingual summary of new information (EN + JP), an updated global context list (full replacement), and an `is_new` flag.
-3. The output is structured as a tool call (similar to a todo list update), enabling schema validation and clean state management.
+1. **Claude Haiku 4.5** receives the institutional context + meeting context + the 30-second transcript window.
+2. Claude produces: a bilingual summary of new information (EN + JP) and an `is_new` flag.
+3. The output is structured as a tool call, enabling schema validation and clean state management.
 4. If `is_new: true`, the display updates with the new summary line highlighted and previous lines dimmed. If `is_new: false`, no display update occurs.
 5. All terms surfaced in summaries are passively captured for the vocabulary database.
 
@@ -140,55 +140,39 @@ Each summarization round:
 
 **Google Cloud Translation v3** (NMT or Gemini-powered TLLM) handles translation within the summarization pipeline. $20/million characters with a 500K chars/month free tier.
 
-#### Listening Mode (tap-to-reveal)
+#### Kanji Assist System
 
-The default for advanced participants. The screen stays dark. The participant listens, maintains eye contact, and engages naturally. When they tap:
+Even fluent bilingual speakers encounter rare or uncommon kanji (難読漢字). Rather than requiring interaction, the interpreter proactively surfaces readings inline -- visible at a glance without breaking eye contact.
 
-1. The Ear's rolling transcript buffer provides the last ~30 seconds of conversation with word-level timestamps.
-2. The Mind's confusion estimator identifies the likely problematic term or phrase based on the tap timestamp, the participant's vocabulary state, and term difficulty.
-3. **Google Cloud Translation v3** translates the buffered segment (~50-100ms, well within the user's patience for an on-demand request).
-4. **Claude Haiku 4.5** compresses the translated segment into a concise bilingual context summary: the key point of what was said, with the estimated confusing term highlighted and explained.
-5. The device displays the summary for a few seconds, then auto-dims.
-6. The confusing term, its context sentence, and a **short audio snippet** (clipped from the rolling audio buffer using Deepgram's word-level timestamps) are saved to the participant's vocabulary database for post-meeting flashcard review.
+- **Japanese split**: kanji at or above a configurable JLPT threshold (default: N1) are color-highlighted with furigana (ruby text) above them. The reading is simply *there* -- no interaction required.
+- **English split**: the corresponding translated word or phrase is highlighted in the same color, creating a visual bridge between the two sides. A single color-coded pair communicates "this Japanese term = this English phrase" faster than any tooltip.
+- **Adjustable threshold**: participants who need more support lower the threshold to N2, N3, etc. Advanced learners who only struggle with the rarest terms keep it at N1. This is a per-participant setting tied to their growth profile.
+- **Set highlighting**: when a highlighted kanji is part of a compound (四字熟語, jukujikun, or multi-kanji term), the entire set is highlighted together rather than individual characters.
+- **Both orientations**: works identically in portrait (both shared and solo modes) and landscape layouts.
 
-#### Tap as Drill-Down (Both Modes)
-
-In Seedling mode, tap serves as a **drill-down** from the rolling summary into raw bilingual context. The participant reads a summary line in their weak language, doesn't fully understand it, and taps to see the specific transcript segment with the confusing term highlighted and explained. This unifies the tap interaction across both modes:
-
-- **Seedling**: summary visible → tap drills into detail → returns to summary
-- **Listening**: screen dark → tap reveals context summary → screen dims
-
-In both modes, the tap location on the display determines **which participant** is confused:
-
-- **Tap on JP side** (portrait top / landscape right) → the EN-native learner needs clarification. The confusing Japanese term and context are saved to their vocabulary database.
-- **Tap on EN side** (portrait bottom / landscape left) → the JP-native learner needs clarification. The confusing English term and context are saved to their vocabulary database.
-
-The physical layout of the device is the user identification system -- no login or session setup is needed to track per-participant vocabulary in Phase 1.
-
-**Tap debouncing**: taps are debounced with a ~5-second cooldown. If the participant taps again while a drill-down is displayed, the context window extends backward rather than generating a new summary. This is cheaper, faster, and more useful for catching moments the participant missed.
-
-#### Silent Nudge
-
-When the Mind detects a likely misunderstanding in Listening mode (false cognates, culturally loaded expressions, ambiguous grammar), the device **vibrates without showing anything**. The participant can choose to tap or to keep listening. This preserves the listen-first default while flagging moments that deserve attention.
-
-#### Per-User Filter
-
-The lightweight step that makes personalisation cheap. The heavy work (ASR, translation) is shared across all participants. The filter operates on tap events -- "this participant tapped at timestamp T, here are the terms they likely didn't know" -- rather than filtering every utterance in real time.
+The furigana uses HTML `<ruby>` tags, sized to remain legible without cluttering the summary text. Since only threshold-exceeding kanji receive furigana (not all text), the display stays clean.
 
 ### Display Model
 
 The display layout adapts to device orientation, serving both single-viewer and shared-device use cases.
 
-#### Portrait (phone flat on table between two speakers)
+#### Portrait
 
-The phone is placed flat on the table as a shared artifact. The screen splits horizontally at the midline:
+Portrait orientation supports two sub-modes:
+
+**Shared mode** (phone flat on table between two speakers): The phone is placed flat on the table as a shared artifact. The screen splits horizontally at the midline:
 
 - **Top half**: Japanese text, rotated 180° (readable by the person sitting across the table). Text grows from the top edge toward the center -- newest content appears closest to the JP-side reader.
 - **Bottom half**: English text, right-side up. Text grows from the bottom edge toward the center -- newest content appears closest to the EN-side reader.
 
-Each participant sees only their **weaker language** on their side -- the EN-native reads Japanese summaries, the JP-native reads English summaries. The summary itself becomes L2 reading practice, with tap available as a safety net.
+Each participant sees only their **weaker language** on their side -- the EN-native reads Japanese summaries, the JP-native reads English summaries. The summary itself becomes L2 reading practice. Layout is hardcoded (JP top, EN bottom). Participants rotate the phone if needed.
 
-Layout is hardcoded (JP top, EN bottom). Participants rotate the phone if needed.
+**Solo mode** (one person holding their own phone): Both halves are right-side up, readable by a single viewer:
+
+- **Top half**: Japanese text (right-side up)
+- **Bottom half**: English text (right-side up)
+
+Designed for when each participant has their own device, or when reviewing individually. The kanji assist highlighting and color-linking work identically to shared mode.
 
 #### Landscape (tablet or shared screen)
 
@@ -211,7 +195,7 @@ The growth system is how Kotoleaf becomes its own obsolescence. Leaves fall as r
 
 ### Vocabulary Tracking
 
-In Listening mode, vocabulary capture is driven by taps. When a participant taps, the Mind estimates which term caused confusion and saves it with rich context:
+Vocabulary capture is driven by two signals: passively from terms surfaced in rolling summaries, and actively from clarification moments detected by the Mind. When a participant asks for clarification naturally, the Mind identifies the likely problematic term and saves it with rich context:
 
 ```
 Term:      稟議 (りんぎ)
@@ -222,25 +206,25 @@ Context:   "この案件は稟議を通す必要があります"
 Audio:     [3.2s clip, speaker: Tanaka-san, clipped from rolling buffer
            using Deepgram word-level timestamps]
 Meeting:   2026-02-21, Meeting with Tanaka-san
-Source:    tap (timestamp 14:32:07, confidence: 0.82)
+Source:    clarification utterance (timestamp 14:32:07, confidence: 0.82)
 Tags:      [business, ChibaTech, approval-process]
 ```
 
 The audio snippet is the key differentiator from traditional flashcards. Hearing the term in the original speaker's voice, accent, speed, and conversational context provides listening practice that isolated audio recordings cannot match. Snippets are clipped from the Ear's rolling audio buffer using Deepgram's word-level timestamps, typically 2-5 seconds centered on the target term.
 
-In Seedling mode, vocabulary is captured through two channels: passively from terms surfaced in rolling summaries, and actively from tap drill-downs (which produce the same high-quality confusion signal as Listening mode taps, including audio snippets). Since each participant reads summaries in their weaker language, the terms they tap on are precisely the vocabulary they need to learn.
+Since each participant reads summaries in their weaker language, the terms surfaced in those summaries are precisely the vocabulary they need to learn. Clarification moments produce the highest-quality confusion signals -- the participant genuinely didn't understand -- and include audio snippets clipped from the rolling buffer.
 
 ### Spaced Repetition (FSRS)
 
 Encountered terms become flashcards in a personal database, reviewed using the FSRS algorithm (the modern successor to SM-2, used natively by Anki since v23.10, default since ~2026). FSRS-6 (21 parameters, latest version) is backed by a peer-reviewed ACM KDD paper (Ye, Su & Cao, 2022) and shows ~99% superiority over SM-2 with optimised parameters across the open-spaced-repetition benchmark (dataset of 10,000-20,000 Anki users; exact figures vary by version). Implementation uses `py-fsrs` (MIT, v6.3.0), the official Python library maintained by FSRS creator Jarrett Ye (L.M. Sherlock).
 
-**Tap-driven encounter mapping**: Applying FSRS to vocabulary identified through tap events in meetings is a novel application, though grounded in established principles. The closest prior work is **Broccoli** (Kämper et al., WWW 2020), which embeds spaced repetition into everyday reading by replacing words with target-language translations -- demonstrating that SRS can work outside traditional flashcard contexts. The spacing effect in incidental learning is supported by Nakata & Elgort (2021), who found that spacing facilitates *explicit* (but not *tacit*) vocabulary knowledge in reading contexts, and by Macis, Sonbul & Alharbi (2021), who studied spacing effects on incidental L2 collocation learning.
+**Clarification-driven encounter mapping**: Applying FSRS to vocabulary identified through natural clarification utterances in meetings is a novel application, though grounded in established principles. The closest prior work is **Broccoli** (Kämper et al., WWW 2020), which embeds spaced repetition into everyday reading by replacing words with target-language translations -- demonstrating that SRS can work outside traditional flashcard contexts. The spacing effect in incidental learning is supported by Nakata & Elgort (2021), who found that spacing facilitates *explicit* (but not *tacit*) vocabulary knowledge in reading contexts, and by Macis, Sonbul & Alharbi (2021), who studied spacing effects on incidental L2 collocation learning.
 
-The tap-to-reveal model improves on passive encounter mapping in a critical way: each tap is an **active signal of confusion**, not a passive exposure. This produces higher-quality input for FSRS because the system knows the participant genuinely didn't understand the term, rather than guessing from proximity. Initial approach: treat each tap-identified term as `Rating.Again` (the participant was confused); treat terms the participant later uses correctly in conversation as `Rating.Good`. A `desired_retention` of 0.8-0.85 is appropriate since the goal is recognition in spoken context, not production.
+The clarification detection model improves on passive encounter mapping in a critical way: each clarification utterance is an **active signal of confusion**, not a passive exposure. This produces higher-quality input for FSRS because the system knows the participant genuinely didn't understand the term, rather than guessing from proximity. Initial approach: treat each clarification-identified term as `Rating.Again` (the participant was confused); treat terms the participant later uses correctly in conversation as `Rating.Good`. A `desired_retention` of 0.8-0.85 is appropriate since the goal is recognition in spoken context, not production.
 
 User actions during review:
 - **Again** / **Hard** / **Good** / **Easy** -- standard FSRS responses that adjust scheduling
-- **Known Forever** -- removes the term from future review and tap-based surfacing entirely (the participant is certain they won't forget it)
+- **Known Forever** -- removes the term from future review entirely (the participant is certain they won't forget it)
 
 ### Importing Existing Vocabulary
 
@@ -253,18 +237,16 @@ Supported import sources:
 
 On import, matched terms (by surface form + reading) are merged with any existing Kotoleaf entries. The import state takes precedence for terms not yet encountered in meetings; for terms already tracked in Kotoleaf, the higher stability wins.
 
-This means a participant who has been studying Japanese for years can import their Anki deck on day one and start directly in Listening mode instead of Seedling -- their roots are already partially grown.
+This means a participant who has been studying Japanese for years can import their Anki deck on day one and the system immediately recognizes their existing vocabulary -- their roots are already partially grown.
 
 ### Growth Level Calculation
 
 Growth is measured by two complementary signals:
 
-- **Tap frequency** -- the primary real-time signal. Taps per meeting, tracked over time, directly measures how often the participant gets lost. Decreasing tap frequency = growing comprehension. This data comes free from natural interaction.
+- **Clarification frequency** -- the primary real-time signal. Clarification requests per meeting, tracked over time, directly measures how often the participant gets lost. Decreasing clarification frequency = growing comprehension. This data comes free from natural conversation.
 - **FSRS vocabulary state** -- the study signal. Terms marked "Known Forever" or with stability above a threshold = **rooted vocabulary**. Terms with low stability or recently failed reviews = **still growing**.
 
-Growth level = a composite of tap frequency trend and `rooted_vocab / total_vocab_encountered`, weighted by FSRS state and term frequency.
-
-The system suggests transitioning from Seedling to Listening mode when vocabulary state indicates sufficient foundation. The participant always has final say -- the transition is a personal commitment to try listening first. Cold-start is always Seedling.
+Growth level = a composite of clarification frequency trend and `rooted_vocab / total_vocab_encountered`, weighted by FSRS state and term frequency.
 
 ## Institutional Knowledge
 
@@ -296,7 +278,7 @@ Meeting organisers choose retention level per session:
 
 | Level | What's Kept | Default |
 |-------|------------|--------|
-| **Vocab + snippets** | Tap-identified terms with audio snippets (2-5s each) added to SRS. Rolling transcript/audio buffer discarded after meeting. | Yes |
+| **Vocab + snippets** | Clarification-identified terms with audio snippets (2-5s each) added to SRS. Rolling transcript/audio buffer discarded after meeting. | Yes |
 | **Summary** | AI-generated bilingual meeting summary + vocab + snippets. Buffer discarded. | |
 | **Full transcript** | Complete bilingual transcript + vocab + snippets. Kept until organiser deletes. | |
 | **Full + audio** | Transcript + complete audio recordings + vocab + snippets. Kept until organiser deletes. | |
@@ -305,29 +287,25 @@ The default (vocab + snippets) retains only the short audio clips associated wit
 
 ## AI Provider Strategy
 
-API-first architecture. In Listening mode (tap-to-reveal), the system only calls translation and LLM APIs when the participant taps -- dramatically reducing cost compared to per-utterance processing. In Seedling mode, Claude runs periodic summarization rounds triggered by new substantive utterances, with Google Cloud Translation handling the bilingual output.
+API-first architecture. Claude runs periodic summarization rounds triggered by new substantive utterances, with Google Cloud Translation handling the bilingual output. There is no per-tap API cost because there is no tapping -- all intelligence runs on the continuous summarization pipeline.
 
 | Task | Provider | Model | Cost | Latency | When |
 |------|----------|-------|------|---------|------|
 | Speech recognition + diarization + language detection | Deepgram | Nova-3 multilingual | ~$0.67/hr | <300ms streaming | Always (both modes) |
-| Rolling summary generation (Seedling mode) | Anthropic | Claude Haiku 4.5 | ~$0.30-0.65/hr | ~800-1500ms | Seedling: every 3+ utterances |
-| Summary translation (Seedling mode) | Google Cloud Translation v3 | NMT (or TLLM) | ~$0.05-0.10/hr | ~50-100ms | Seedling: per round |
-| Context summary translation (Listening mode) | Google Cloud Translation v3 | NMT (or TLLM) | ~$0.01-0.05/hr | ~50-100ms | Listening: on tap |
-| Context compression + confusion estimation | Anthropic | Claude Haiku 4.5 | ~$0.02-0.10/hr | ~800-1500ms | Listening: on tap |
-| Misunderstanding detection | Anthropic | Claude Haiku 4.5 | ~$0.05-0.15/hr | inline | Both modes |
+| Rolling summary generation | Anthropic | Claude Haiku 4.5 | ~$0.30-0.65/hr | ~800-1500ms | Every 3+ substantive utterances |
+| Summary translation | Google Cloud Translation v3 | NMT (or TLLM) | ~$0.05-0.10/hr | ~50-100ms | Per summarization round |
+| Clarification detection | Anthropic | Claude Haiku 4.5 | included in summarization | inline | Continuous (within summarization rounds) |
 | Cultural briefing notes | Anthropic | Claude Sonnet 4.6 | ~$0.01/session | off critical path | Pre-meeting |
 | Meeting materials analysis | Anthropic | Claude Sonnet 4.6 | per-meeting, negligible | pre-meeting | Pre-meeting |
 | Flashcard generation + audio clipping | Anthropic | Claude Haiku 4.5 | ~$0.03/meeting | post-meeting | Post-meeting |
 
-Estimated total cost: **~$0.75-1.00/hr in Listening mode**, **~$1.05-1.45/hr in Seedling mode**. Listening mode is cheaper because Claude is only called on tap. Seedling mode calls Claude for periodic summarization rounds (adaptive, roughly every 10-30 seconds depending on conversation pace), but this is still dramatically cheaper than per-utterance processing because the two-tier context architecture keeps input tokens small (~1000 tokens/round: global context + local transcript + system prompt).
-
-**Why the tap-to-reveal model changes cost dynamics:** In Listening mode, Claude is only called when the participant taps -- perhaps 5-15 times per hour. This makes Claude's 800-1500ms latency a non-issue (the participant is waiting for a thoughtful summary, not streaming subtitles). In Seedling mode, Claude is called per summarization round (~120-360 times/hr depending on conversation density), but with small payloads and structured output (tool call pattern). The per-round cost is ~$0.002, making Claude's contribution to Seedling mode ~$0.30-0.65/hr.
+Estimated total cost: **~$1.05-1.45/hr**. Claude is called for periodic summarization rounds (adaptive, roughly every 10-30 seconds depending on conversation pace), but this is dramatically cheaper than per-utterance processing because the three-tier context architecture keeps input tokens small (~1000 tokens/round: institutional + meeting context + 30-second transcript + system prompt). The per-round cost is ~$0.002, making Claude's contribution ~$0.30-0.65/hr.
 
 **Why Google Cloud Translation?** ChibaTech is a Google Workspace organisation, so Google Cloud Translation shares billing, IAM, and Cloud Storage with the rest of the GCP stack. NMT pricing ($20/M chars) is competitive, with a free tier of 500K chars/month. The Gemini-powered TLLM model offers higher quality at the same effective price. Adaptive Translation can be steered with example sentence pairs for consistent register -- a lighter-weight customisation path than training custom models. Google explicitly does not store or train on API-submitted text.
 
 **Google Cloud Translation models**: NMT ($20/M chars) is fastest and cheapest -- start here. TLLM (Gemini-powered, $10/M input + $10/M output) offers higher quality if needed. Adaptive Translation ($25/M input + $25/M output) steers with example sentence pairs for consistent register.
 
-**Implementation notes**: Japanese text uses 2-4x more LLM tokens than English (cost estimates account for this). Anthropic prompt caching (90% cost reduction) is valuable for Seedling mode summarization rounds (~120-360 calls/hr with similar system prompts) and useful in Listening mode (5-15 taps/hr). Gemini may be added later for meeting materials ingestion (1M context, multimodal). All API providers are SOC 2 Type II and GDPR compliant.
+**Implementation notes**: Japanese text uses 2-4x more LLM tokens than English (cost estimates account for this). Anthropic prompt caching (90% cost reduction) is valuable for summarization rounds (~120-360 calls/hr with similar system prompts). Gemini may be added later for meeting materials ingestion (1M context, multimodal). All API providers are SOC 2 Type II and GDPR compliant.
 
 ## Tech Stack
 
@@ -354,15 +332,15 @@ Estimated infrastructure cost: Cloud Run (~$30-65/month for moderate usage with 
 
 ## Scaling
 
-The per-participant cost is lightweight because the heavy work (ASR, audio buffering) is shared -- everyone hears the same audio, so there's one pipeline. The per-participant work is processing tap events (a database lookup + translation call + audio snippet extraction), which happens only when a participant taps.
+The per-participant cost is lightweight because the heavy work (ASR, audio buffering, summarization) is shared -- everyone hears the same audio, so there's one pipeline. The per-participant work is the personalized summary view (showing each participant their weaker language) and post-meeting vocabulary processing from clarification moments.
 
 Scaling is handled by Deepgram's infrastructure, not ours. No GPU provisioning, no cold starts, no VRAM budgeting. Cloud Run auto-scales the orchestration layer. Cost scales linearly with meeting hours, not with infrastructure.
 
 | Scenario | Participants | Interaction | Compute |
 |----------|-------------|-------------|--------|
-| Nemawashi (1-to-1) | 2 | Per-person mode (Seedling or Listening) | ~1.0x base |
-| Small meeting (in-person) | 3-5 | Per-person mode | ~1.05x base |
-| Meet call (6+) | 6+ | Rolling summaries for all (Seedling-equivalent) | ~1.0x base |
+| Nemawashi (1-to-1) | 2 | Rolling bilingual summaries | ~1.0x base |
+| Small meeting (in-person) | 3-5 | Rolling bilingual summaries | ~1.05x base |
+| Meet call (6+) | 6+ | Rolling bilingual summaries | ~1.0x base |
 
 ## English-Japanese Specific Challenges
 
@@ -380,38 +358,36 @@ These are known hard problems that the design must account for:
 
 The simplest thing that is useful: two people, one conversation, a safety net when you're lost.
 
-- Web app with both interaction modes:
-  - **Seedling mode**: rolling bilingual summaries with two-tier context (global + local), adaptive summarization trigger, delta highlighting
-  - **Listening mode**: dark screen with tap-to-reveal context summaries
-  - Tap as drill-down in Seedling, tap as reveal in Listening
-- Portrait split-flip display (JP top 180°, EN bottom) + landscape side-by-side (EN left, JP right)
-- Side-based participant identification: tap location determines which participant's vocabulary database receives the confusion event
+- Web app with rolling bilingual summaries:
+  - Three-tier context architecture (institutional, meeting, 30-second), adaptive summarization trigger, delta highlighting
+  - Clarification detection: natural clarification utterances timestamped for post-meeting vocabulary learning
+- Portrait display: shared split-flip (JP top 180°, EN bottom) and solo mode (both right-side up) + landscape side-by-side (EN left, JP right)
 - 1-to-1 mode only (2 participants)
 - Deepgram Nova-3 multilingual streaming ASR with code-switching + rolling audio buffer
 - Google Cloud Translation v3 for translation (~50-100ms)
-- Claude Haiku 4.5 for context compression on tap and rolling summarization (tool call output with global context management)
+- Claude Haiku 4.5 for rolling summarization (tool call output with three-tier context management)
 - Google SSO login
-- Basic vocab capture from taps: term, context sentence, and audio snippet saved to per-participant database (no SRS scheduling yet)
+- Basic vocab capture from clarification moments: term, context sentence, and audio snippet saved to per-participant database (no SRS scheduling yet)
 - In-person only (device microphones)
 - Configurable summarization thresholds (utterance count, word/duration minimums, interval bounds)
+- Kanji assist: JLPT N1+ kanji highlighted with furigana on JP side, color-linked English equivalent on EN side, adjustable N-level threshold
 
-**Not in Phase 1**: FSRS scheduling, flashcard review UI, misunderstanding detection (silent nudge), institutional glossary, sentiment analysis, targeted drill-down (tapping specific summary phrases). Phase 1 validates the core interaction: do rolling summaries in L2 + tap-to-reveal drill-downs help people have better bilingual conversations?
+**Not in Phase 1**: FSRS scheduling, flashcard review UI, institutional glossary, sentiment analysis, relationship register model (formality calibration). Phase 1 validates the core interaction: do rolling bilingual summaries + clarification detection help people have better bilingual conversations without touching the device?
 
-**Success metric**: two ChibaTech colleagues have a bilingual nemawashi conversation and both report that (a) they felt more present in the conversation than with always-on subtitles, (b) the rolling summaries helped them follow along in their weaker language, and (c) the tap drill-down clarified moments of confusion.
+**Success metric**: two ChibaTech colleagues have a bilingual nemawashi conversation and both report that (a) they felt more present in the conversation than with always-on subtitles, (b) the rolling summaries helped them follow along in their weaker language, and (c) the clarification detection captured vocabulary they actually struggled with.
 
 ### Phase 2 -- The Teacher
 
 The roots start to grow.
 
 - FSRS flashcard review system in the web app, with in-situ audio snippet playback
-- Growth level calculation from tap frequency trend + FSRS vocabulary state
+- Growth level calculation from clarification frequency trend + FSRS vocabulary state
 - "Known Forever" marking
 - Import existing FSRS state from Anki (`.apkg`/`.colpkg`), FSRS-compatible apps (JSON/CSV), or plain vocabulary lists
-- Silent nudge feature: misunderstanding detection via Claude (device vibrates on detected false cognates, culturally loaded expressions, ambiguous grammar -- participant chooses whether to tap)
-- **Targeted drill-down**: tappable phrases within rolling summaries. Instead of a generic tap, the participant taps a specific summary phrase to drill into that exact transcript segment. Requires Claude to output anchor references linking summary phrases to transcript timestamps.
+- **Relationship register model**: per-pair formality tracking across conversations. Monitors self-introduction patterns, pronoun usage, honorific levels, and organizational hierarchy. Calibrates interpreter output register from formal (new relationships) to casual (established trust). Slow-moving signal evolving over weeks/months.
 - **Sentiment analysis from audio layer**: prosody, hesitation, pitch, and breath timing carry more honest sentiment signal than text (especially through the tatemae filter in Japanese business communication). Audio-layer sentiment is a fundamentally different feature from text summarization and benefits from dedicated audio analysis rather than LLM text inference.
 
-**Success metric**: a participant who reviews flashcards with audio snippets regularly shows decreasing tap frequency over weeks of meetings, matching their actual comprehension growth. They transition from Seedling to Listening mode and stay there.
+**Success metric**: a participant who reviews flashcards with audio snippets regularly shows decreasing clarification frequency over weeks of meetings, matching their actual comprehension growth.
 
 ### Phase 3 -- Institutional Knowledge
 

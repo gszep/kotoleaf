@@ -109,7 +109,7 @@ Cost: ~$0.0092/min ($0.55/hr) for multilingual streaming + $0.0020/min diarizati
 
 The intelligence layer. Maintains per-participant state and detects moments that matter.
 
-- **Clarification Detection** -- monitors the conversation for natural clarification utterances: "もう一度お願いします" (one more time please), "could you clarify that?", "what does X mean?", or any rephrasing request in either language. When detected, the Mind timestamps the moment against the rolling transcript, cross-references the participant's vocabulary database and term difficulty, and identifies the likely problematic term or phrase. These moments become post-meeting flashcard candidates -- genuine confusion signals that emerge from natural conversation rather than device interaction.
+- **Clarification Detection** -- uses LLM judgment within each summarization round to detect moments where a participant signals confusion or requests clarification. Detection is guided by exemplar phrases but is not limited to pattern matching -- Claude evaluates conversational context to distinguish genuine confusion from normal Japanese indirectness and hedging. Exemplar signals include but are not limited to: direct requests ("もう一度お願いします", "could you clarify that?"), trailing-off responses ("すみません、ちょっと..."), rephrasing checks ("それは〜ということですか？"), and English equivalents ("what does X mean?", "sorry, I didn't follow that"). When detected, the Mind timestamps the moment against the rolling transcript, cross-references the participant's vocabulary database, and identifies the likely problematic term or phrase. Each detection includes a `confidence` score -- the LLM's self-reported assessment of whether the utterance reflects genuine confusion versus conversational hedging or politeness. All detected terms enter the **candidate stack** for later human review, regardless of confidence level.
 - **Glossary Lookup** -- checks terms against the institutional glossary (ChibaTech-specific abbreviations, project names, domain terminology) and any per-meeting session glossary from uploaded materials.
 - **Growth Tracking** -- monitors clarification frequency over time as the primary growth signal. A participant whose clarification requests decrease from 15/meeting to 3/meeting over weeks is demonstrably growing, and the data comes free from natural conversation.
 - **Relationship Register Model** -- tracks the formality level between conversation partners over time. Default LLM translation produces overly formal Japanese (stiff keigo), which actively distances the relationship and hinders nemawashi. The register model monitors formality signals across conversations: self-introduction patterns (fading out as familiarity grows), pronoun usage shifts (あなた → first-name basis), honorific levels (丁寧語 → casual forms), and organizational hierarchy awareness. This is a slow-moving signal -- evolving over weeks and months, not minutes -- that calibrates the interpreter's output to match the actual relationship register between participants. The model maintains a per-pair formality profile (participant A ↔ participant B) so that the same person's output is formal with a new executive and casual with a long-time colleague.
@@ -207,8 +207,11 @@ Audio:     [3.2s clip, speaker: Tanaka-san, clipped from rolling buffer
            using Deepgram word-level timestamps]
 Meeting:   2026-02-21, Meeting with Tanaka-san
 Source:    clarification utterance (timestamp 14:32:07, confidence: 0.82)
+Stack:     candidate (awaiting user triage)
 Tags:      [business, ChibaTech, approval-process]
 ```
+
+- `confidence` is the LLM's self-reported assessment (0-1) of whether the utterance reflects genuine confusion versus conversational hedging or politeness. It is stored for analytics and sorting but does not gate flashcard creation -- all detected terms enter the candidate stack.
 
 The audio snippet is the key differentiator from traditional flashcards. Hearing the term in the original speaker's voice, accent, speed, and conversational context provides listening practice that isolated audio recordings cannot match. Snippets are clipped from the Ear's rolling audio buffer using Deepgram's word-level timestamps, typically 2-5 seconds centered on the target term.
 
@@ -220,9 +223,20 @@ Encountered terms become flashcards in a personal database, reviewed using the F
 
 **Clarification-driven encounter mapping**: Applying FSRS to vocabulary identified through natural clarification utterances in meetings is a novel application, though grounded in established principles. The closest prior work is **Broccoli** (Kämper et al., WWW 2020), which embeds spaced repetition into everyday reading by replacing words with target-language translations -- demonstrating that SRS can work outside traditional flashcard contexts. The spacing effect in incidental learning is supported by Nakata & Elgort (2021), who found that spacing facilitates *explicit* (but not *tacit*) vocabulary knowledge in reading contexts, and by Macis, Sonbul & Alharbi (2021), who studied spacing effects on incidental L2 collocation learning.
 
-The clarification detection model improves on passive encounter mapping in a critical way: each clarification utterance is an **active signal of confusion**, not a passive exposure. This produces higher-quality input for FSRS because the system knows the participant genuinely didn't understand the term, rather than guessing from proximity. Initial approach: treat each clarification-identified term as `Rating.Again` (the participant was confused); treat terms the participant later uses correctly in conversation as `Rating.Good`. A `desired_retention` of 0.8-0.85 is appropriate since the goal is recognition in spoken context, not production.
+The clarification detection model improves on passive encounter mapping in a critical way: each clarification utterance is an **active signal of confusion**, not a passive exposure. This produces higher-quality input for FSRS because the system knows the participant genuinely didn't understand the term, rather than guessing from proximity. Initial FSRS mapping: when a term enters the review stack, it starts as `Rating.Again` (the participant was confused); terms the participant later uses correctly in conversation are marked `Rating.Good`. A `desired_retention` of 0.8-0.85 is appropriate since the goal is recognition in spoken context, not production.
 
-User actions during review:
+#### Candidate Stack and Review Stack
+
+Vocabulary flows through two stacks that give the participant full control over what they study:
+
+- **Candidate stack** -- all terms detected from clarification moments and passive summary capture land here. The stack persists indefinitely and accumulates across meetings. There is no pressure to attend to it -- it is a reservoir of potential vocabulary, not a to-do list. Candidates are sorted by confidence (highest first) and can be browsed at any time.
+- **Review stack** -- the active study set. Terms the participant has chosen to learn, scheduled by FSRS. This is where repeated spaced repetition practice happens.
+
+The participant **triages** the candidate stack by swiping: **down to accept** (moves the term to the review stack, initialised as `Rating.Again`) or **up to discard** (removes the term from candidates -- the participant already knows it or doesn't want to learn it). This triage interaction is lightweight and can happen in small batches -- after a meeting, during a commute, or whenever the participant has a moment.
+
+The separation is deliberate: the participant controls the balance between **dialing in existing knowledge** (review stack -- repeated FSRS practice on accepted terms) and **discovering new vocabulary** (candidate stack -- browsing and triaging new captures). Neither stack pressures the other. A participant who is overwhelmed with review can ignore candidates entirely; one who is hungry for new material can triage aggressively.
+
+User actions during review (review stack):
 - **Again** / **Hard** / **Good** / **Easy** -- standard FSRS responses that adjust scheduling
 - **Known Forever** -- removes the term from future review entirely (the participant is certain they won't forget it)
 
@@ -368,7 +382,7 @@ The simplest thing that is useful: two people, one conversation, a safety net wh
 - Deepgram Nova-3 multilingual streaming ASR with code-switching + rolling audio buffer
 - Claude Haiku 4.5 for rolling bilingual summarization + clarification detection (tool call output with three-tier context management, producing both EN and JP summaries directly)
 - Google SSO login
-- Basic vocab capture from clarification moments: term, context sentence, and audio snippet saved to per-participant database (no SRS scheduling yet)
+- Basic vocab capture from clarification moments: term, context sentence, confidence score, and audio snippet saved to per-participant candidate stack (no SRS scheduling or triage UI yet -- Phase 2)
 - In-person only (device microphones)
 - Configurable summarization thresholds (utterance count, word/duration minimums, interval bounds)
 - Kanji assist: JLPT N1+ kanji highlighted with furigana on JP side, color-linked English equivalent on EN side, adjustable N-level threshold

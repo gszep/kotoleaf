@@ -22,13 +22,17 @@ Kotoleaf is an in-house tool that brings the best of Flitto and the broader simu
 
 ## Modes of Operation
 
-| Mode | Participants | Audio Source |
-|------|-------------|--------------|
-| **Nemawashi** (1-to-1) | 2 | Device microphones |
-| **Small meeting** (in-person) | 3-5 | Device or room microphones, server diarizes |
-| **Meet call** (6+) | 6+ | Google Meet bot captures all audio |
+| Mode | Phase | Participants | Audio Source | Deepgram Processing |
+|------|-------|-------------|--------------|---------------------|
+| **In-person shared** | 1 | 2 | Single device microphone (`getUserMedia`) | Diarization |
+| **In-person solo** | 1 | 2 | Two device microphones, separate streams (`getUserMedia`) | Multichannel (speaker identity known) |
+| **Google Meet screen-share** | 1.5 | 2 | Tab audio capture (`getDisplayMedia`) | Diarization |
+| **Small meeting** (in-person) | 4 | 3-5 | Device or room microphones, server diarizes | Diarization |
+| **Google Meet bot** | 4 | 6+ | Headless browser or Meet Media API | Diarization or multichannel |
 
 In all modes, the ASR pipeline runs continuously in the background, maintaining a rolling transcript buffer. The system detects natural clarification utterances and timestamps them for post-meeting vocabulary learning.
+
+Phase 1 supports three audio sources with a single unified backend -- the backend receives audio bytes over WebSocket and forwards to Deepgram regardless of source. The screen-share mode (Phase 1.5) requires zero backend changes: a frontend toggle switches the audio source from `getUserMedia` (microphone) to `getDisplayMedia` (tab audio capture). One participant opens Kotoleaf alongside Google Meet, captures the Meet tab's audio, and screen-shares the Kotoleaf tab back into Meet so both participants see the rolling summary.
 
 ### Display
 
@@ -59,6 +63,9 @@ Three processing layers named for the metaphor: Ear (perception), Mind (understa
 +---------------------------------------------------------------------+
          |                    |
     [WebSocket]          [Google SSO]
+         |                    |
+         |  (Phase 1: getUserMedia or getDisplayMedia)
+         |  (Phase 4: LiveKit WebRTC)
          |                    |
 +---[ GCP Cloud Run ]------------------------------------------------+
 |                                                                     |
@@ -101,7 +108,11 @@ Captures live audio and converts it to text with speaker attribution and languag
 - **Language Detection** -- built into Deepgram's multilingual mode. Each word is tagged with its detected language. No separate language ID model needed.
 - **Voice Activity Detection** -- handled by Deepgram server-side. No client-side VAD needed.
 
-For Google Meet calls (Phase 4), a bot joins the meeting and captures audio server-side. Options include open-source frameworks (MeetingBaaS, Attendee, MeetingBot) or a custom Playwright headless browser, with migration to the Google Meet Media API when it reaches GA. The headless browser approach carries **Terms of Service risk**. For in-person meetings (Phase 1-3), audio comes from each participant's device microphone.
+For in-person meetings (Phase 1), audio comes from each participant's device microphone via `getUserMedia`. In shared mode (one phone on table), a single stream captures both speakers and Deepgram's streaming diarization handles speaker attribution. In solo mode (two devices), each device captures one speaker as a separate stream linked by a shared meeting ID -- speaker identity is known by definition, so no diarization is needed (multichannel mode).
+
+For Google Meet screen-share mode (Phase 1.5), audio comes from Chrome's `getDisplayMedia({ audio: true })` API, which captures the Meet tab's audio output (both speakers in one stream). The backend receives this identically to microphone audio -- only the frontend audio source changes. Limitations: only Chrome supports `getDisplayMedia` with audio capture (Firefox and Safari do not); the user must select the correct tab when prompted; audio quality depends on the Meet call quality.
+
+For Google Meet bot integration (Phase 4), a bot joins the meeting and captures audio server-side. Options include open-source frameworks (MeetingBaaS, Attendee, MeetingBot) or a custom Playwright headless browser, with migration to the Google Meet Media API when it reaches GA. The headless browser approach carries **Terms of Service risk**.
 
 Cost: ~$0.0092/min ($0.55/hr) for multilingual streaming + $0.0020/min diarization = ~$0.67/hr total.
 
@@ -337,7 +348,8 @@ Estimated total cost: **~$0.75-0.95/hr**. Claude is called for periodic summariz
 | Layer | Technology | Hosting |
 |-------|-----------|--------|
 | Frontend | SvelteKit (Svelte 5) | Static + CDN, or GCP Cloud Run |
-| Real-time transport | LiveKit (WebRTC) | LiveKit Cloud, or self-hosted on Cloud Run / Fly.io |
+| Real-time transport (Phase 1) | WebSocket (browser → FastAPI backend → Deepgram) | GCP Cloud Run |
+| Real-time transport (Phase 4) | LiveKit (WebRTC) | LiveKit Cloud, or self-hosted on Cloud Run / Fly.io |
 | Backend API | FastAPI (Python, async) | GCP Cloud Run |
 | ASR + diarization + LID | Deepgram Nova-3 multilingual | Deepgram API (streaming WebSocket) |
 | Translation (pre-meeting, flashcards) | Google Cloud Translation v3 (NMT / TLLM) | Google Cloud API |
@@ -347,7 +359,9 @@ Estimated total cost: **~$0.75-0.95/hr**. Claude is called for periodic summariz
 | Auth | Google Workspace SSO (OAuth 2.0) | Google Identity |
 | Meet integration (Phase 4) | MeetingBaaS or Attendee; migrate to Google Meet Media API at GA | GCP Cloud Run |
 
-**Why LiveKit**: The [livekit-examples/live-translated-captioning](https://github.com/livekit-examples/live-translated-captioning) demo implements almost exactly this use case -- LiveKit for WebRTC audio transport, LiveKit Agents (Python) for STT via Deepgram, and per-participant output. Adopting LiveKit eliminates custom audio transport, WebSocket management, and room handling.
+**Why WebSocket for Phase 1**: Deepgram explicitly recommends a backend proxy pattern (browser → WebSocket → backend → Deepgram API) to protect API keys and enable server-side processing. For 1-to-1 nemawashi meetings, this is the simplest possible transport. Cloud Run's 60-minute WebSocket timeout is manageable for typical nemawashi duration; client-side reconnection handles longer sessions.
+
+**Why LiveKit for Phase 4**: The [livekit-examples/live-translated-captioning](https://github.com/livekit-examples/live-translated-captioning) demo implements almost exactly this use case -- LiveKit for WebRTC audio transport, LiveKit Agents (Python) for STT via Deepgram, and per-participant output. LiveKit earns its place when the system scales to 6+ participants, remote participants requiring NAT traversal, and bot-joins-meeting patterns. Phase 1's WebSocket approach provides a clear upgrade path.
 
 **Why Firestore over Postgres**: ChibaTech is a Google Workspace org -- Firestore shares billing, IAM, and the GCP stack. FSRS card state is per-user key-value data (not relational JOINs). If SRS analytics later demand relational queries, migrate vocabulary tables to Supabase/Postgres.
 
@@ -363,9 +377,11 @@ Scaling is handled by Deepgram's infrastructure, not ours. No GPU provisioning, 
 
 | Scenario | Participants | Interaction | Compute |
 |----------|-------------|-------------|--------|
-| Nemawashi (1-to-1) | 2 | Rolling bilingual summaries | ~1.0x base |
+| In-person shared (1-to-1) | 2 | Rolling bilingual summaries | ~1.0x base |
+| In-person solo (1-to-1) | 2 | Rolling bilingual summaries | ~1.0x base |
+| Google Meet screen-share (1-to-1) | 2 | Rolling bilingual summaries | ~1.0x base |
 | Small meeting (in-person) | 3-5 | Rolling bilingual summaries | ~1.05x base |
-| Meet call (6+) | 6+ | Rolling bilingual summaries | ~1.0x base |
+| Google Meet bot (6+) | 6+ | Rolling bilingual summaries | ~1.0x base |
 
 ## English-Japanese Specific Challenges
 
@@ -392,11 +408,14 @@ The simplest thing that is useful: two people, one conversation, a safety net wh
 - Claude Haiku 4.5 for rolling bilingual summarization + clarification detection (tool call output with three-tier context management, producing both EN and JP summaries directly)
 - Google SSO login
 - Basic vocab capture from clarification moments: term, context sentence, confidence score, encounter frequency, and audio snippet saved to per-participant encounter stack (no SRS scheduling or triage UI yet -- Phase 2)
-- In-person only (device microphones)
+- Three audio source modes with a single unified backend:
+  - In-person shared: single device microphone with diarization
+  - In-person solo: two device microphones as separate streams (multichannel)
+  - Google Meet screen-share (Phase 1.5): Chrome tab audio capture via `getDisplayMedia`, screen-shared back into Meet so both participants see the summary. Zero backend changes -- frontend toggle only. Chrome-only (Firefox/Safari lack tab audio capture).
 - Configurable summarization thresholds (utterance count, word/duration minimums, interval bounds)
 - Kanji assist: JLPT N1+ kanji highlighted with furigana on JP side, color-linked English equivalent on EN side, adjustable N-level threshold
 
-**Not in Phase 1**: FSRS scheduling, flashcard review UI, institutional glossary, sentiment analysis, relationship register model (formality calibration). Phase 1 validates the core interaction: do rolling bilingual summaries + clarification detection help people have better bilingual conversations without touching the device?
+**Not in Phase 1**: FSRS scheduling, flashcard review UI, institutional glossary, sentiment analysis, relationship register model (formality calibration). Phase 1 validates the core interaction: do rolling bilingual summaries + clarification detection help people have better bilingual conversations without touching the device? The screen-share mode (Phase 1.5) extends this validation to remote Google Meet conversations with minimal additional effort (a frontend audio source toggle).
 
 **Success metric**: two ChibaTech colleagues have a bilingual nemawashi conversation and both report that (a) they felt more present in the conversation than with always-on subtitles, (b) the rolling summaries helped them follow along in their weaker language, and (c) the clarification detection captured vocabulary they actually struggled with.
 

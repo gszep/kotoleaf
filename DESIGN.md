@@ -12,7 +12,7 @@ Kotoleaf is an in-house tool that brings the best of Flitto and the broader simu
 
 2. **Listen first, device last.** The default is listening, not reading -- and never touching the device. Always-on subtitles become a crutch that hinders the listening comprehension Kotoleaf exists to develop (Bjork, 1994; Cárdenas & Ramírez Orellana, 2024). Rolling summaries are a glanceable safety net, not the floor. Touching the phone during nemawashi encourages technology interaction at the expense of human connection -- the very thing the meeting exists to build. When a participant is confused, they clarify naturally ("もう一度お願いします", "could you clarify that?") and the system detects these moments automatically for post-meeting learning.
 
-3. **Privacy where it matters.** Meeting audio is sent to Deepgram for ASR; transcript text is sent to Google Cloud Translation (real-time NMT) and Anthropic (contextual intelligence) for processing -- all are SOC 2 Type II and GDPR compliant. Short audio snippets (a few seconds each) are retained per vocabulary term for flashcard review; full audio is discarded unless the organiser opts in. Vocabulary data, institutional glossary, and growth state remain on ChibaTech's GCP infrastructure.
+3. **Privacy where it matters.** Meeting audio is sent to Deepgram for ASR; transcript text is sent to Anthropic (contextual intelligence -- bilingual summarization and clarification detection) for processing -- both are SOC 2 Type II and GDPR compliant. Google Cloud Translation is used only for pre-meeting materials and post-meeting flashcard definitions. Short audio snippets (a few seconds each) are retained per vocabulary term for flashcard review; full audio is discarded unless the organiser opts in. Vocabulary data, institutional glossary, and growth state remain on ChibaTech's GCP infrastructure.
 
 4. **Nemawashi-first design.** The system is designed around 1-to-1 bilingual conversation (nemawashi) as the primary use case. If it works beautifully for two people building consensus, everything else scales from there.
 
@@ -124,21 +124,21 @@ Produces the rolling bilingual summaries that each participant reads in their we
 
 The summarization system uses a **three-tier context architecture**:
 
-- **Institutional context** -- organization-level knowledge loaded before the meeting: ChibaTech terminology, team structure, positions, hierarchy, industry vocabulary, and the institutional glossary. Updated rarely (when new terms are added to the glossary or organizational changes occur). Injected into every summarization round as stable background knowledge.
-- **Meeting context** -- per-session knowledge set up at meeting start: relationship register state between the participants, uploaded meeting materials (slides, docs, briefing notes), per-session glossary from extracted terminology, and any cultural briefing notes. Evolves slowly during the conversation as the register model updates.
-- **30-second context** -- the raw transcript from the last ~30 seconds (the most recent substantive utterances), providing immediate conversational context.
+- **Institutional context** -- organization-level knowledge loaded before the meeting: ChibaTech terminology, team structure, positions, hierarchy, industry vocabulary, and the institutional glossary. Updated rarely (when new terms are added to the glossary or organizational changes occur). Injected into every summarization round as stable background knowledge. *(Phase 1: empty stub -- institutional glossary is Phase 3.)*
+- **Meeting context** -- per-session knowledge set up at meeting start: uploaded meeting materials (slides, docs, briefing notes), per-session glossary from extracted terminology, and any cultural briefing notes. *(Phase 1: minimal -- no uploaded materials or relationship register. Phase 2 adds per-pair formality tracking.)*
+- **30-second context** -- the raw transcript from the last ~30 seconds (the most recent substantive utterances), including Deepgram's per-word language tags and speaker labels, providing immediate conversational context.
 
 Each summarization round:
 
-1. **Claude Haiku 4.5** receives the institutional context + meeting context + the 30-second transcript window.
-2. Claude produces: a bilingual summary of new information (EN + JP) and an `is_new` flag.
-3. The output is structured as a tool call, enabling schema validation and clean state management.
+1. **Claude Haiku 4.5** receives the institutional context + meeting context + the 30-second transcript window (with per-word language tags and speaker labels from Deepgram).
+2. Claude produces a structured tool call containing: an EN summary, a JP summary (in the appropriate register for the participants), an `is_new` flag, and any detected clarification moments with the likely confusing term identified.
+3. The tool call schema enables validation and clean state management.
 4. If `is_new: true`, the display updates with the new summary line highlighted and previous lines dimmed. If `is_new: false`, no display update occurs.
 5. All terms surfaced in summaries are passively captured for the vocabulary database.
 
-**Summarization trigger**: rounds are triggered adaptively by new substantive utterances (configurable threshold, default: 3 utterances of ≥5 words or ≥3 seconds duration), with a maximum interval ceiling (~45 seconds) and a minimum cooldown (~8 seconds). This filters backchanneling and aizuchi while ensuring updates during long monologues.
+Claude produces both EN and JP summaries directly rather than generating one language and using machine translation for the other. This is essential because the system is an *interpreter*, not a translator -- register, cultural context, and glossary consistency must be maintained across both language outputs. Google Cloud Translation (NMT) cannot preserve these signals. *(GCT retains a role outside the summarization pipeline: pre-meeting materials extraction, flashcard term definitions, and fallback translation.)*
 
-**Google Cloud Translation v3** (NMT or Gemini-powered TLLM) handles translation within the summarization pipeline. $20/million characters with a 500K chars/month free tier.
+**Summarization trigger**: rounds are triggered adaptively by new substantive utterances (configurable threshold, default: 3 utterances of ≥5 words or ≥3 seconds duration), with a maximum interval ceiling (~45 seconds) and a minimum cooldown (~8 seconds). This filters backchanneling and aizuchi while ensuring updates during long monologues.
 
 #### Kanji Assist System
 
@@ -287,25 +287,27 @@ The default (vocab + snippets) retains only the short audio clips associated wit
 
 ## AI Provider Strategy
 
-API-first architecture. Claude runs periodic summarization rounds triggered by new substantive utterances, with Google Cloud Translation handling the bilingual output. There is no per-tap API cost because there is no tapping -- all intelligence runs on the continuous summarization pipeline.
+API-first architecture. Claude handles all real-time interpretation -- producing bilingual summaries directly rather than relying on machine translation -- because the system is an interpreter, not a translator. Register, cultural context, and glossary consistency require a single model producing both languages. There is no per-tap API cost because there is no tapping -- all intelligence runs on the continuous summarization pipeline.
 
 | Task | Provider | Model | Cost | Latency | When |
 |------|----------|-------|------|---------|------|
-| Speech recognition + diarization + language detection | Deepgram | Nova-3 multilingual | ~$0.67/hr | <300ms streaming | Always (both modes) |
-| Rolling summary generation | Anthropic | Claude Haiku 4.5 | ~$0.30-0.65/hr | ~800-1500ms | Every 3+ substantive utterances |
-| Summary translation | Google Cloud Translation v3 | NMT (or TLLM) | ~$0.05-0.10/hr | ~50-100ms | Per summarization round |
-| Clarification detection | Anthropic | Claude Haiku 4.5 | included in summarization | inline | Continuous (within summarization rounds) |
+| Speech recognition + diarization + language detection | Deepgram | Nova-3 multilingual | ~$0.67/hr | <300ms streaming | Always |
+| Rolling bilingual summary + clarification detection | Anthropic | Claude Haiku 4.5 | ~$0.04-0.21/hr | ~800-1500ms | Every 3+ substantive utterances |
 | Cultural briefing notes | Anthropic | Claude Sonnet 4.6 | ~$0.01/session | off critical path | Pre-meeting |
 | Meeting materials analysis | Anthropic | Claude Sonnet 4.6 | per-meeting, negligible | pre-meeting | Pre-meeting |
 | Flashcard generation + audio clipping | Anthropic | Claude Haiku 4.5 | ~$0.03/meeting | post-meeting | Post-meeting |
+| Pre-meeting materials translation | Google Cloud Translation v3 | NMT (or TLLM) | per-meeting, negligible | pre-meeting | Pre-meeting |
+| Flashcard term definitions (fallback) | Google Cloud Translation v3 | NMT | negligible | post-meeting | Post-meeting |
 
-Estimated total cost: **~$1.05-1.45/hr**. Claude is called for periodic summarization rounds (adaptive, roughly every 10-30 seconds depending on conversation pace), but this is dramatically cheaper than per-utterance processing because the three-tier context architecture keeps input tokens small (~1000 tokens/round: institutional + meeting context + 30-second transcript + system prompt). The per-round cost is ~$0.002, making Claude's contribution ~$0.30-0.65/hr.
+Estimated total cost: **~$0.75-0.95/hr**. Claude is called for periodic summarization rounds (adaptive, roughly every 10-30 seconds depending on conversation pace). The three-tier context architecture keeps input tokens small (~1000 tokens/round: institutional + meeting context + 30-second transcript + system prompt). At $1/$5 per M tokens (Haiku 4.5), the per-round cost is ~$0.0006-0.002 depending on output length.
 
-**Why Google Cloud Translation?** ChibaTech is a Google Workspace organisation, so Google Cloud Translation shares billing, IAM, and Cloud Storage with the rest of the GCP stack. NMT pricing ($20/M chars) is competitive, with a free tier of 500K chars/month. The Gemini-powered TLLM model offers higher quality at the same effective price. Adaptive Translation can be steered with example sentence pairs for consistent register -- a lighter-weight customisation path than training custom models. Google explicitly does not store or train on API-submitted text.
+**Prompt caching**: Anthropic prompt caching (90% input cost reduction) is well-suited to this architecture. The institutional context + meeting context form a stable prefix that caches across rounds; only the 30-second transcript window varies. With ~120-360 calls/hr sharing similar prefixes, effective Claude cost drops to ~$0.04-0.06/hr with high cache hit rates. Without caching (cold start, context changes), cost is ~$0.21/hr. The range reflects this.
 
-**Google Cloud Translation models**: NMT ($20/M chars) is fastest and cheapest -- start here. TLLM (Gemini-powered, $10/M input + $10/M output) offers higher quality if needed. Adaptive Translation ($25/M input + $25/M output) steers with example sentence pairs for consistent register.
+**Why Claude produces both languages**: Google Cloud Translation (NMT) defaults to formal register and cannot maintain consistency with the institutional glossary, meeting context, or the participants' actual formality level. Claude handles register calibration and cultural interpretation in a single call. GCT remains available for mechanical translation tasks outside the real-time pipeline (pre-meeting materials, flashcard definitions).
 
-**Implementation notes**: Japanese text uses 2-4x more LLM tokens than English (cost estimates account for this). Anthropic prompt caching (90% cost reduction) is valuable for summarization rounds (~120-360 calls/hr with similar system prompts). Gemini may be added later for meeting materials ingestion (1M context, multimodal). All API providers are SOC 2 Type II and GDPR compliant.
+**Why Google Cloud Translation for non-real-time tasks?** ChibaTech is a Google Workspace organisation, so GCT shares billing, IAM, and Cloud Storage with the rest of the GCP stack. NMT pricing ($20/M chars) is competitive, with a free tier of 500K chars/month. Google explicitly does not store or train on API-submitted text.
+
+**Implementation notes**: Japanese text uses 2-4x more LLM tokens than English (cost estimates account for this). Gemini 3 Flash ($0.50/$3 per M tokens) is a viable alternative to Claude Haiku 4.5 for the summarization layer -- Google's Japanese training data is extensive -- and should be A/B tested once the pipeline is validated. Gemini may also be added later for meeting materials ingestion (1M context, multimodal). All API providers are SOC 2 Type II and GDPR compliant.
 
 ## Tech Stack
 
@@ -315,7 +317,7 @@ Estimated total cost: **~$1.05-1.45/hr**. Claude is called for periodic summariz
 | Real-time transport | LiveKit (WebRTC) | LiveKit Cloud, or self-hosted on Cloud Run / Fly.io |
 | Backend API | FastAPI (Python, async) | GCP Cloud Run |
 | ASR + diarization + LID | Deepgram Nova-3 multilingual | Deepgram API (streaming WebSocket) |
-| Translation | Google Cloud Translation v3 (NMT / TLLM) | Google Cloud API |
+| Translation (pre-meeting, flashcards) | Google Cloud Translation v3 (NMT / TLLM) | Google Cloud API |
 | Contextual intelligence | Claude Haiku 4.5 / Claude Sonnet 4.6 | Anthropic API |
 | User DB / Vocab / SRS | Firestore | GCP |
 | Glossary DB | Firestore | GCP |
@@ -364,8 +366,7 @@ The simplest thing that is useful: two people, one conversation, a safety net wh
 - Portrait display: shared split-flip (JP top 180°, EN bottom) and solo mode (both right-side up) + landscape side-by-side (EN left, JP right)
 - 1-to-1 mode only (2 participants)
 - Deepgram Nova-3 multilingual streaming ASR with code-switching + rolling audio buffer
-- Google Cloud Translation v3 for translation (~50-100ms)
-- Claude Haiku 4.5 for rolling summarization (tool call output with three-tier context management)
+- Claude Haiku 4.5 for rolling bilingual summarization + clarification detection (tool call output with three-tier context management, producing both EN and JP summaries directly)
 - Google SSO login
 - Basic vocab capture from clarification moments: term, context sentence, and audio snippet saved to per-participant database (no SRS scheduling yet)
 - In-person only (device microphones)

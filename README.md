@@ -24,52 +24,48 @@ Silence speaks at last<br>
 <td valign="top" align="left">
 
 <h2>Philosophy</h2>
-<p>Kotoleaf is not a translator. It's a teacher disguised as one.</p>
+<p>Kotoleaf is not a translator. It's an interpreter disguised as one.</p>
 
-<p>The default is <strong>listening</strong>, not reading. During a bilingual conversation, the screen stays dark. When you notice you're lost, you tap — and receive a concise summary of the last 30 seconds with the confusing term highlighted and explained. Each tap also captures a short audio snippet of the original speech, building a personal flashcard deck grounded in real conversations.</p>
+<p>During a bilingual conversation, a rolling bilingual summary streams quietly to each participant's device — a glanceable safety net, not the floor. You listen, maintain eye contact, and glance when needed, like checking a clock. When you're confused, you say so naturally — "もう一度お願いします", "what does that mean?" — and the system detects these moments for post-meeting vocabulary learning.</p>
 
-<p>The goal is its own obsolescence. You tap less as you grow.</p>
+<p>The goal is its own obsolescence. You clarify less as you grow.</p>
 
 </td>
 <td valign="top" align="left">
 
 <h2>理念</h2>
 
-<p>言リーフは翻訳ツールではありません。教師が翻訳の姿を借りているのです。</p>
+<p>言リーフは翻訳ツールではありません。通訳が翻訳の姿を借りているのです。</p>
 
-<p>基本は<strong>耳で聞く</strong>こと。画面を見ることではありません。バイリンガルの会話中、画面は暗いままです。迷ったときにタップすると、直前30秒の要約が表示され、困惑の原因となった用語がハイライトされます。タップのたびに、元の音声の短いスニペットも保存され、実際の会話に基づいたフラッシュカードが作られます。</p>
+<p>バイリンガルの会話中、ローリングバイリンガル要約が参加者のデバイスに静かに流れます — 一瞥できるセーフティネットであり、常に見つめるものではありません。耳で聞き、目を合わせ、必要なときにちらっと見る — 時計を確認するように。迷ったら自然に聞き返します — "もう一度お願いします"、"what does that mean?" — その瞬間をシステムが検出し、会議後の語彙学習に活用します。</p>
 
-<p>目標は、自らが不要になること。タップの回数が減るほど、成長の証。</p>
+<p>目標は、自らが不要になること。聞き返す回数が減るほど、成長の証。</p>
 
 </td></tr>
 
 <tr>
 <td valign="top" align="left">
 
-<h2>The Leaf Progression 🍃</h2>
+<h2>The Leaf Metaphor 🍃</h2>
 
 <p>Inspired by 言の葉 (<em>Kotonoha</em> — "leaves of words") and 根回し (<em>Nemawashi</em> — "going around the roots," the Japanese practice of building consensus through deep groundwork), Kotoleaf models language learning as a living tree.</p>
 
 <p>A seedling needs many leaves to gather light. As its roots grow deep and wide — spreading through shared vocabulary, cultural understanding, and mutual trust — the tree becomes strong enough that it no longer needs every leaf to sustain itself. The leaves fall not because the tree is dying, but because the roots have taken hold.</p>
 
-<p><strong>🌱 Seedling</strong> — Dense canopy. The tree needs all its leaves. Always-on bilingual subtitles stream to your device — training wheels for when you can't yet follow the conversation on your own.</p>
-
-<p><strong>🌳 Listening</strong> — The roots are growing. The screen stays dark — you listen, maintain eye contact, and engage naturally. When you're lost, you reach for a leaf: tap to reveal a 30-second context summary with the confusing term explained. Each tap captures an audio snippet for later review. As your roots deepen, you tap less. Eventually, Kotoleaf rests quietly in the soil.</p>
+<p>The rolling summaries are the leaves — a canopy of support. As comprehension deepens, you glance less. Clarification requests decrease. Eventually, Kotoleaf rests quietly in the soil.</p>
 
 <p>Each participant's growth is independent. The root network is the relationship itself — the shared context, trust, and buy-in you've built through every conversation.</p>
 
 </td>
 <td valign="top" align="left">
 
-<h2>葉の段階 🍃</h2>
+<h2>葉の比喩 🍃</h2>
 
 <p>言の葉（ことのは ― 言葉の葉）と根回し（ねまわし ― 合意形成のために根を回す日本の慣習）にちなみ、言リーフは言語学習を一本の生きた木として捉えます。</p>
 
 <p>苗木は光を集めるために多くの葉を必要とします。共有する語彙、文化的理解、相互の信頼を通じて根が深く広く張るにつれ、木はすべての葉に頼らなくても自立できるほど強くなります。葉が落ちるのは木が枯れているからではなく、根がしっかりと根付いたからです。</p>
 
-<p><strong>🌱 苗木</strong> — 密な樹冠。木はすべての葉を必要としています。バイリンガル字幕が常に表示されます ― まだ会話を自力で追えない時期の補助輪です。</p>
-
-<p><strong>🌳 傾聴</strong> — 根が育っています。画面は暗いまま ― 耳で聞き、目を合わせ、自然に会話に参加します。迷ったときに葉に手を伸ばします：タップすると直前30秒の文脈要約が表示され、困惑の原因となった用語が説明されます。タップのたびに復習用の音声スニペットも保存されます。根が深まるほどタップは減ります。やがて言リーフは静かに土の中で休みます。</p>
+<p>ローリング要約は葉 ― 支えの樹冠です。理解が深まるにつれ、見る回数は減ります。聞き返しの要求が減少します。やがて言リーフは静かに土の中で休みます。</p>
 
 <p>それぞれの参加者の成長は独立しています。根のネットワークとは関係そのもの ― あらゆる会話を通じて築いてきた共有の文脈、信頼、そして合意です。</p>
 
@@ -82,10 +78,10 @@ Silence speaks at last<br>
 
 <ol>
 <li><strong>Live speech recognition</strong> captures both sides of the conversation, maintaining a rolling transcript and audio buffer.</li>
-<li><strong>Listen naturally</strong> — the screen stays dark. You focus on the person, not the device.</li>
-<li><strong>Tap when lost</strong> — a 30-second bilingual context summary appears, with the likely confusing term highlighted.</li>
-<li><strong>Audio flashcards</strong> — each tap saves the confusing term with a short clip of the original speech for post-meeting review.</li>
-<li><strong>Growth tracking</strong> — tap frequency decreases over time as comprehension deepens. The leaves fall as the roots grow.</li>
+<li><strong>Rolling bilingual summaries</strong> stream to each participant's device in their weaker language — a glanceable safety net that updates when new information arrives.</li>
+<li><strong>Clarification detection</strong> — when you ask naturally ("もう一度お願いします", "could you clarify that?"), the system timestamps the moment and identifies the likely confusing term.</li>
+<li><strong>Audio flashcards</strong> — each detected clarification saves the term with a short clip of the original speech for post-meeting review.</li>
+<li><strong>Growth tracking</strong> — clarification frequency decreases over time as comprehension deepens. The leaves fall as the roots grow.</li>
 </ol>
 
 </td>
@@ -95,10 +91,10 @@ Silence speaks at last<br>
 
 <ol>
 <li><strong>リアルタイム音声認識</strong> — 会話の両側を捉え、トランスクリプトと音声のローリングバッファを維持します。</li>
-<li><strong>自然に聞く</strong> — 画面は暗いまま。デバイスではなく、目の前の人に集中します。</li>
-<li><strong>迷ったらタップ</strong> — 直前30秒のバイリンガル文脈要約が表示され、困惑の原因となった用語がハイライトされます。</li>
-<li><strong>音声フラッシュカード</strong> — タップのたびに、元の音声の短いクリップとともに用語が保存され、会議後の復習に使えます。</li>
-<li><strong>成長記録</strong> — 理解が深まるにつれてタップの頻度が減少します。葉が落ち、根が育つ。</li>
+<li><strong>ローリングバイリンガル要約</strong> — 参加者の弱い言語でデバイスに表示されます — 新しい情報が入ると更新される一瞥型のセーフティネットです。</li>
+<li><strong>明確化要求の検出</strong> — 自然に聞き返したとき（"もう一度お願いします"、"could you clarify that?"）、その瞬間を記録し、困惑の原因となった用語を特定します。</li>
+<li><strong>音声フラッシュカード</strong> — 検出された明確化要求ごとに、元の音声の短いクリップとともに用語が保存され、会議後の復習に使えます。</li>
+<li><strong>成長記録</strong> — 理解が深まるにつれて明確化要求の頻度が減少します。葉が落ち、根が育つ。</li>
 </ol>
 
 </td></tr>

@@ -10,7 +10,7 @@ Kotoleaf is an in-house tool that brings the best of Flitto and the broader simu
 
 1. **The roots, not the leaves, are the goal.** Every feature should strengthen the root network -- shared vocabulary, cultural understanding, mutual trust -- between participants. Translation is the means, not the end.
 
-2. **Listen first, device last.** The default is listening, not reading -- and never touching the device. Rolling summaries are visible but update only when new information arrives, moving at the pace of meaning rather than speech -- unlike subtitles or literal translations, they never force the participant into constant reading mode (Bjork, 1994; Cárdenas & Ramírez Orellana, 2024). The interpreter is mindful of this: summaries are a glanceable safety net, not the floor. Touching the phone during nemawashi encourages technology interaction at the expense of human connection -- the very thing the meeting exists to build. When a participant is confused, they clarify naturally ("もう一度お願いします", "could you clarify that?") and the system detects these moments automatically for post-meeting learning.
+2. **Listen first, device last.** The default is listening, not reading -- and never touching the device. Rolling summaries are visible but update only when new information arrives, moving at the pace of meaning rather than speech -- unlike subtitles or literal translations, they never force the participant into constant reading mode. This is a design hypothesis informed by desirable difficulties theory (Bjork, 1994; Bjork & Bjork, 2011) and progressive caption reduction research (Cárdenas & Ramírez Orellana, 2024), though no study has directly compared rolling summaries to subtitles for real-time bilingual meeting comprehension. The hypothesis will be validated through in-situ user feedback. The interpreter is mindful of this: summaries are a glanceable safety net, not the floor. Touching the phone during nemawashi encourages technology interaction at the expense of human connection -- the very thing the meeting exists to build. When a participant is confused, they clarify naturally ("もう一度お願いします", "could you clarify that?") and the system detects these moments automatically for post-meeting learning.
 
 3. **Privacy where it matters.** Meeting audio is sent to Deepgram for ASR; transcript text is sent to Anthropic (contextual intelligence -- bilingual summarization and clarification detection) for processing -- both are SOC 2 Type II and GDPR compliant. Google Cloud Translation is used only for pre-meeting materials and post-meeting flashcard definitions. Short audio snippets (a few seconds each) are retained per vocabulary term for flashcard review; full audio is discarded unless the organiser opts in. Vocabulary data, institutional glossary, and growth state remain on ChibaTech's GCP infrastructure.
 
@@ -25,14 +25,14 @@ Kotoleaf is an in-house tool that brings the best of Flitto and the broader simu
 | Mode | Phase | Participants | Audio Source | Deepgram Processing |
 |------|-------|-------------|--------------|---------------------|
 | **In-person shared** | 1 | 2 | Single device microphone (`getUserMedia`) | Diarization |
-| **In-person solo** | 1 | 2 | Two device microphones, separate streams (`getUserMedia`) | Multichannel (speaker identity known) |
+| **In-person solo** | 2+ | 2 | Two device microphones, separate streams (`getUserMedia`) | Multichannel (speaker identity known) |
 | **Google Meet screen-share** | 1.5 | 2 | Tab audio capture (`getDisplayMedia`) | Diarization |
 | **Small meeting** (in-person) | 4 | 3-5 | Device or room microphones, server diarizes | Diarization |
 | **Google Meet bot** | 4 | 6+ | Headless browser or Meet Media API | Diarization or multichannel |
 
 In all modes, the ASR pipeline runs continuously in the background, maintaining a rolling transcript buffer. The system detects natural clarification utterances and timestamps them for post-meeting vocabulary learning.
 
-Phase 1 supports three audio sources with a single unified backend -- the backend receives audio bytes over WebSocket and forwards to Deepgram regardless of source. The screen-share mode (Phase 1.5) requires zero backend changes: a frontend toggle switches the audio source from `getUserMedia` (microphone) to `getDisplayMedia` (tab audio capture). One participant opens Kotoleaf alongside Google Meet, captures the Meet tab's audio, and screen-shares the Kotoleaf tab back into Meet so both participants see the rolling summary.
+Phase 1 supports two audio sources with a single unified backend -- the backend receives audio bytes over WebSocket and forwards to Deepgram regardless of source. The screen-share mode (Phase 1.5) requires zero backend changes: a frontend toggle switches the audio source from `getUserMedia` (microphone) to `getDisplayMedia` (tab audio capture). One participant opens Kotoleaf alongside Google Meet, captures the Meet tab's audio, and screen-shares the Kotoleaf tab back into Meet so both participants see the rolling summary.
 
 ### Display
 
@@ -72,10 +72,10 @@ Three processing layers named for the metaphor: Ear (perception), Mind (understa
 |  +--[ Kotoleaf Server (no GPU) ]----------------------------------+ |
 |  |                                                                | |
 |  |  Ear ────────> Mind ────────> Tongue                           | |
-|  |  - Deepgram     - Clarification     - Google Cloud NMT         | |
-|  |    Nova-3 API     detection           (translation)            | |
-|  |    (ASR +       - Institutional/    - Claude Haiku 4.5         | |
-|  |    diarization    meeting/30s         (rolling summaries)      | |
+|  |  - Deepgram     - Clarification     - Claude Haiku 4.5        | |
+|  |    Nova-3 API     detection           (rolling summaries)      | |
+|  |    (ASR +       - Institutional/    - Kanji assist             | |
+|  |    diarization    meeting/30s         (MeCab/fugashi)          | |
 |  |    + LID)         context mgmt    - Split-flip display         | |
 |  |  - Rolling      - Growth tracking  - Audio snippet capture     | |
 |  |    audio buffer - Glossary lookup                              | |
@@ -105,10 +105,12 @@ Captures live audio and converts it to text with speaker attribution and languag
 
 - **Speech Recognition** (Deepgram Nova-3, `language=multi`) -- multilingual streaming ASR via WebSocket API. True EN-JA code-switching with per-word language tags. Sub-300ms latency. The Feb 2026 multilingual update improved code-switching WER by ~21%.
 - **Speaker Diarization** -- Deepgram's built-in streaming diarization (add-on at $0.0020/min). No separate model needed. No speaker count limitations like self-hosted alternatives.
-- **Language Detection** -- built into Deepgram's multilingual mode. Each word is tagged with its detected language. No separate language ID model needed.
+- **Language Detection** -- built into Deepgram's multilingual mode. Each word is tagged with its detected language and a confidence score. No separate language ID model needed. **Known limitation**: per-word language tags may be unreliable for katakana loanwords and proper nouns that exist in both languages (e.g., ミーティング/meeting, プロジェクト/project). The Mind layer is informed of this finite error rate and uses the three-tier context to correct likely misattributions. Deepgram's language detection parameters are exposed in the settings UI alongside diarization settings for in-situ tuning.
 - **Voice Activity Detection** -- handled by Deepgram server-side. No client-side VAD needed.
 
-For in-person meetings (Phase 1), audio comes from each participant's device microphone via `getUserMedia`. In shared mode (one phone on table), a single stream captures both speakers and Deepgram's streaming diarization handles speaker attribution. In solo mode (two devices), each device captures one speaker as a separate stream linked by a shared meeting ID -- speaker identity is known by definition, so no diarization is needed (multichannel mode).
+For in-person meetings (Phase 1), audio comes from the device microphone via `getUserMedia`. One phone is placed on the table between both speakers, and Deepgram's streaming diarization handles speaker attribution from the single audio stream. *(Phase 2+ adds solo mode with two devices capturing separate streams via multichannel mode, where speaker identity is known by definition.)*
+
+**Diarization + code-switching limitation**: Deepgram's own documentation notes that streaming diarization combined with code-switching "remains challenging" and recommends separate audio channels for best results. In practice, diarization accuracy may degrade when both speakers are bilingual with similar vocal characteristics. The summarization pipeline's three-tier context and LLM reasoning can partially compensate -- Claude is informed of a finite speaker attribution error rate and uses conversational context to correct likely misattributions. Deepgram's diarization hyperparameters (model, language, diarize confidence thresholds) are exposed in the settings UI for in-situ tuning.
 
 For Google Meet screen-share mode (Phase 1.5), audio comes from Chrome's `getDisplayMedia({ audio: true })` API, which captures the Meet tab's audio output (both speakers in one stream). The backend receives this identically to microphone audio -- only the frontend audio source changes. Limitations: only Chrome supports `getDisplayMedia` with audio capture (Firefox and Safari do not); the user must select the correct tab when prompted; audio quality depends on the Meet call quality.
 
@@ -116,11 +118,13 @@ For Google Meet bot integration (Phase 4), a bot joins the meeting and captures 
 
 Cost: ~$0.0092/min ($0.55/hr) for multilingual streaming + $0.0020/min diarization = ~$0.67/hr total.
 
+**Rolling audio buffer**: The Ear maintains an in-memory circular buffer of raw audio on the server, sized at ~2 minutes (comfortably larger than the 45-second maximum summarization interval, ensuring clarification audio is still available when the Mind detects it). Audio snippets are clipped from this buffer using Deepgram's word-level timestamps and immediately persisted to Cloud Storage on detection -- once clipped, snippets survive even if the buffer is later lost. The buffer is ephemeral: no persistence across server restarts or reconnections (out of scope for Phase 1). Sessions are expected to stay within Cloud Run's 60-minute WebSocket timeout for the MVP.
+
 ### Mind (Understanding)
 
 The intelligence layer. Maintains per-participant state and detects moments that matter.
 
-- **Clarification Detection** -- uses LLM judgment within each summarization round to detect moments where a participant signals confusion or requests clarification. Detection is guided by exemplar phrases but is not limited to pattern matching -- Claude evaluates conversational context to distinguish genuine confusion from normal Japanese indirectness and hedging. Exemplar signals include but are not limited to: direct requests ("もう一度お願いします", "could you clarify that?"), trailing-off responses ("すみません、ちょっと..."), rephrasing checks ("それは〜ということですか？"), and English equivalents ("what does X mean?", "sorry, I didn't follow that"). When detected, the Mind timestamps the moment against the rolling transcript, cross-references the participant's vocabulary database, and identifies the likely problematic term or phrase. Each detection includes a `confidence` score -- the LLM's self-reported assessment of whether the utterance reflects genuine confusion versus conversational hedging or politeness. All detected terms enter the **encounter stack** for later human triage, regardless of confidence level. Terms already in the review stack do not accumulate in the encounter stack -- only new, unreviewed terms appear.
+- **Clarification Detection** -- uses LLM judgment within each summarization round to detect moments where a participant signals confusion or requests clarification. Detection is guided by exemplar phrases but is not limited to pattern matching -- Claude evaluates conversational context to distinguish genuine confusion from normal Japanese indirectness and hedging. Recent research (Li et al., EMNLP Findings 2024) shows LLMs achieve F1 of 0.78-0.82 for detecting clarification needs, dropping to 0.65-0.70 when distinguishing genuine confusion from backchannels -- a relevant limitation given the high frequency of Japanese aizuchi (はい、そうですね、なるほど). The confidence score mitigates this: all detected terms enter the encounter stack for human triage regardless, and the confidence score helps participants prioritize. Exemplar signals include but are not limited to: direct requests ("もう一度お願いします", "could you clarify that?"), trailing-off responses ("すみません、ちょっと..."), rephrasing checks ("それは〜ということですか？"), and English equivalents ("what does X mean?", "sorry, I didn't follow that"). When detected, the Mind records the timestamp from Deepgram's word-level timestamps on the clarification utterance itself (not the summarization round time), cross-references the participant's vocabulary database, and identifies the likely problematic term or phrase. The rolling audio buffer (see Ear section) must be sized larger than the maximum summarization interval to ensure the clarification audio is still available for snippet clipping at detection time. Each detection includes a `confidence` score -- the LLM's self-reported assessment of whether the utterance reflects genuine confusion versus conversational hedging or politeness. All detected terms enter the **encounter stack** for later human triage, regardless of confidence level. Terms already in the review stack do not accumulate in the encounter stack -- only new, unreviewed terms appear.
 - **Glossary Lookup** -- checks terms against the institutional glossary (ChibaTech-specific abbreviations, project names, domain terminology) and any per-meeting session glossary from uploaded materials.
 - **Growth Tracking** -- monitors clarification frequency over time as the primary growth signal. A participant whose clarification requests decrease from 15/meeting to 3/meeting over weeks is demonstrably growing, and the data comes free from natural conversation.
 - **Relationship Register Model** -- tracks the formality level between conversation partners over time. Default LLM translation produces overly formal Japanese (stiff keigo), which actively distances the relationship and hinders nemawashi. The register model monitors formality signals across conversations: self-introduction patterns (fading out as familiarity grows), pronoun usage shifts (あなた → first-name basis), honorific levels (丁寧語 → casual forms), and organizational hierarchy awareness. This is a slow-moving signal -- evolving over weeks and months, not minutes -- that calibrates the interpreter's output to match the actual relationship register between participants. The model maintains a per-pair formality profile (participant A ↔ participant B) so that the same person's output is formal with a new executive and casual with a long-time colleague.
@@ -142,21 +146,21 @@ The summarization system uses a **three-tier context architecture**:
 Each summarization round:
 
 1. **Claude Haiku 4.5** receives the institutional context + meeting context + the 30-second transcript window (with per-word language tags and speaker labels from Deepgram).
-2. Claude produces a structured tool call containing: an EN summary, a JP summary (in the appropriate register for the participants), an `is_new` flag, and any detected clarification moments with the likely confusing term identified.
+2. Claude produces a structured tool call containing: an EN summary, a JP summary (in the appropriate register for the participants), an `is_new` flag, any detected clarification moments with the likely confusing term identified, and bracket-indexed term pairs for kanji assist (e.g., `{稟議}[1]` in JP and `{approval process}[1]` in EN). The bracket syntax enables the frontend to match JP-EN term pairs by index for color-linked highlighting.
 3. The tool call schema enables validation and clean state management.
 4. If `is_new: true`, the display updates with the new summary line highlighted and previous lines dimmed. If `is_new: false`, no display update occurs.
-5. All terms surfaced in summaries are passively captured for the vocabulary database.
+5. Terms are passively captured for the vocabulary database, filtered to only those that are either (a) highlighted by the kanji assist system (at or above the participant's JLPT threshold) or (b) match the institutional glossary. Common vocabulary is excluded -- only terms the system has already identified as potentially challenging or domain-specific enter the encounter stack. This keeps passive capture bounded to ~0-3 terms per round rather than flooding the stack with noise.
 
 Claude produces both EN and JP summaries directly rather than generating one language and using machine translation for the other. This is essential because the system is an *interpreter*, not a translator -- register, cultural context, and glossary consistency must be maintained across both language outputs. Google Cloud Translation (NMT) cannot preserve these signals. *(GCT retains a role outside the summarization pipeline: pre-meeting materials extraction, flashcard term definitions, and fallback translation.)*
 
-**Summarization trigger**: rounds are triggered adaptively by new substantive utterances (configurable threshold, default: 3 utterances of ≥5 words or ≥3 seconds duration), with a maximum interval ceiling (~45 seconds) and a minimum cooldown (~8 seconds). This filters backchanneling and aizuchi while ensuring updates during long monologues.
+**Summarization trigger**: rounds are triggered adaptively by new substantive utterances (default: 3 utterances of ≥5 words or ≥3 seconds duration), with a maximum interval ceiling (~45 seconds) and a minimum cooldown (~8 seconds). This filters backchanneling and aizuchi while ensuring updates during long monologues. All trigger parameters are exposed in the settings UI for in-situ tuning during testing. Parameters that can be hot-reloaded mid-session (utterance count, word/duration minimums, interval bounds) are marked as such; others require a session restart. All session data is retained regardless of whether the session completes normally or is restarted, to support debugging and parameter tuning.
 
 #### Kanji Assist System
 
 Even fluent bilingual speakers encounter rare or uncommon kanji (難読漢字). Rather than requiring interaction, the interpreter proactively surfaces readings inline -- visible at a glance without breaking eye contact.
 
 - **Japanese split**: kanji at or above a configurable JLPT threshold (default: N1) are color-highlighted with furigana (ruby text) above them. The reading is simply *there* -- no interaction required.
-- **English split**: the corresponding translated word or phrase is highlighted in the same color, creating a visual bridge between the two sides. A single color-coded pair communicates "this Japanese term = this English phrase" faster than any tooltip.
+- **English split**: the corresponding translated word or phrase is highlighted in the same color, creating a visual bridge between the two sides. A single color-coded pair communicates "this Japanese term = this English phrase" faster than any tooltip. **Pairing mechanism**: Claude produces bracket-indexed references in both summaries (e.g., `{稟議}[1]` in JP and `{approval process}[1]` in EN). The frontend strips the bracket syntax and applies matching highlight colors to paired indices. This avoids a separate alignment step -- the model identifies pairings at generation time.
 - **Adjustable threshold**: participants who need more support lower the threshold to N2, N3, etc. Advanced learners who only struggle with the rarest terms keep it at N1. This is a per-participant setting tied to their growth profile.
 - **Set highlighting**: when a highlighted kanji is part of a compound (四字熟語, jukujikun, or multi-kanji term), the entire set is highlighted together rather than individual characters. Compound boundaries are identified by **MeCab** (via `fugashi`, a Cython wrapper) using the `unidic-lite` dictionary. MeCab runs synchronously on the server after Claude produces each JP summary -- at ~1ms per parse for 1-3 sentences, it adds negligible latency. A single `fugashi.Tagger` instance is initialized at app startup and reused across requests.
 - **Both orientations**: works identically in portrait (both shared and solo modes) and landscape layouts.
@@ -165,7 +169,7 @@ The furigana uses HTML `<ruby>` tags, sized to remain legible without cluttering
 
 ### Display Model
 
-The display layout adapts to device orientation, serving both single-viewer and shared-device use cases.
+The display layout adapts to device orientation, serving both single-viewer and shared-device use cases. **Default: solo mode** (portrait, both halves right-side up). The participant switches to shared mode (split-flip) or landscape via a toggle in the UI.
 
 #### Portrait
 
@@ -232,7 +236,7 @@ Since each participant reads summaries in their weaker language, the terms surfa
 
 Encountered terms become flashcards in a personal database, reviewed using the FSRS algorithm (the modern successor to SM-2, used natively by Anki since v23.10, default since ~2026). FSRS-6 (21 parameters, latest version) is backed by a peer-reviewed ACM KDD paper (Ye, Su & Cao, 2022) and shows ~99% superiority over SM-2 with optimised parameters across the open-spaced-repetition benchmark (dataset of 10,000-20,000 Anki users; exact figures vary by version). Implementation uses `py-fsrs` (MIT, v6.3.0), the official Python library maintained by FSRS creator Jarrett Ye (L.M. Sherlock).
 
-**Clarification-driven encounter mapping**: Applying FSRS to vocabulary identified through natural clarification utterances in meetings is a novel application, though grounded in established principles. The closest prior work is **Broccoli** (Kämper et al., WWW 2020), which embeds spaced repetition into everyday reading by replacing words with target-language translations -- demonstrating that SRS can work outside traditional flashcard contexts. The spacing effect in incidental learning is supported by Nakata & Elgort (2021), who found that spacing facilitates *explicit* (but not *tacit*) vocabulary knowledge in reading contexts, and by Macis, Sonbul & Alharbi (2021), who studied spacing effects on incidental L2 collocation learning.
+**Clarification-driven encounter mapping**: Applying FSRS to vocabulary identified through natural clarification utterances in meetings is a novel application, though grounded in established principles. Related prior work includes a family of systems that embed vocabulary learning into natural digital activities: **Broccoli** (Kämper et al., WWW 2020) sprinkles SRS into everyday web browsing; **Smart Subtitles** (Lungu et al., CHI 2020) enriches video subtitles with translations and definitions for in-context vocabulary learning during media consumption; **WordBee** (CHI 2022) integrates SRS into online reading; **WaitChatter** (CHI 2015) uses messaging idle time for vocabulary practice (see "Beyond Flashcards" survey, arXiv 2310.14155, 2023 for a comprehensive mapping). Kotoleaf's novel contribution is embedding SRS into *real-time bilateral conversation* -- none of the above handle live, bidirectional speech. The spacing effect in incidental learning is supported by Nakata & Elgort (2021), who found that spacing facilitates *explicit* (but not *tacit*) vocabulary knowledge in reading contexts, and by Macis, Sonbul & Alharbi (2021), who studied spacing effects on incidental L2 collocation learning.
 
 The clarification detection model improves on passive encounter mapping in a critical way: each clarification utterance is an **active signal of confusion**, not a passive exposure. This produces higher-quality input for FSRS because the system knows the participant genuinely didn't understand the term, rather than guessing from proximity. Initial FSRS mapping: when a term enters the review stack, it starts as `Rating.Again` (the participant was confused); terms the participant later uses correctly in conversation are marked `Rating.Good`. A `desired_retention` of 0.8-0.85 is appropriate since the goal is recognition in spoken context, not production.
 
@@ -407,7 +411,7 @@ The simplest thing that is useful: two people, one conversation, a safety net wh
 - 1-to-1 mode only (2 participants)
 - Deepgram Nova-3 multilingual streaming ASR with code-switching + rolling audio buffer
 - Claude Haiku 4.5 for rolling bilingual summarization + clarification detection (tool call output with three-tier context management, producing both EN and JP summaries directly)
-- Per-participant register preset (selectable before or during meeting):
+- Per-session register preset (default: **workplace polite**, adjustable by any participant during the meeting):
 
   | Preset | Japanese Register | When to Use |
   |--------|-------------------|-------------|
@@ -415,19 +419,18 @@ The simplest thing that is useful: two people, one conversation, a safety net wh
   | **Formal** | Full 丁寧語/敬語 | New relationships, executives, external partners |
   | **Casual** | ため口/plain form | Close colleagues, informal settings |
 
-  The selected preset injects a register instruction into Claude's system prompt. Phase 2 replaces this manual setting with automatic per-pair register tracking.
+  The register is shared for the session -- both participants see summaries in the same register. The selected preset injects a register instruction into Claude's system prompt and can be hot-reloaded mid-session without restarting. Phase 2 replaces this manual setting with automatic per-pair register tracking.
 - Google SSO login
 - Basic vocab capture from clarification moments: term, context sentence, confidence score, encounter frequency, and audio snippet saved to per-participant encounter stack (no SRS scheduling or triage UI yet -- Phase 2)
-- Three audio source modes with a single unified backend:
+- Two audio source modes with a single unified backend:
   - In-person shared: single device microphone with diarization
-  - In-person solo: two device microphones as separate streams (multichannel)
   - Google Meet screen-share (Phase 1.5): Chrome tab audio capture via `getDisplayMedia`, screen-shared back into Meet so both participants see the summary. Zero backend changes -- frontend toggle only. Chrome-only (Firefox/Safari lack tab audio capture).
 - Configurable summarization thresholds (utterance count, word/duration minimums, interval bounds)
 - Kanji assist: JLPT N1+ kanji highlighted with furigana on JP side, color-linked English equivalent on EN side, adjustable N-level threshold. Compound boundaries from MeCab/fugashi (synchronous, ~1ms per parse)
 
-**Not in Phase 1**: FSRS scheduling, flashcard review UI, automated institutional glossary pipeline (Workspace/GitHub/Slack ingestion), sentiment analysis, automatic relationship register model (per-pair formality tracking -- Phase 1 uses manual register presets instead). Phase 1 validates the core interaction: do rolling bilingual summaries + clarification detection help people have better bilingual conversations without touching the device? The screen-share mode (Phase 1.5) extends this validation to remote Google Meet conversations with minimal additional effort (a frontend audio source toggle).
+**Not in Phase 1**: FSRS scheduling, flashcard review UI, automated institutional glossary pipeline (Workspace/GitHub/Slack ingestion), sentiment analysis, automatic relationship register model (per-pair formality tracking -- Phase 1 uses manual register presets instead), multi-device solo mode (two separate devices per meeting -- Phase 2+), WebSocket authentication refresh and reconnection handling (sessions >60 minutes), screen-share audio feedback mitigation. Phase 1 validates the core interaction: do rolling bilingual summaries + clarification detection help people have better bilingual conversations without touching the device? The screen-share mode (Phase 1.5) extends this validation to remote Google Meet conversations with minimal additional effort (a frontend audio source toggle).
 
-**Success metric**: two ChibaTech colleagues have a bilingual nemawashi conversation and both report that (a) they felt more present in the conversation than with real-time subtitle translation, (b) the rolling summaries helped them follow along in their weaker language, and (c) the clarification detection captured vocabulary they actually struggled with.
+**Success metric**: at the end of each session, participants rate the experience 1-5 stars (prompted automatically, like WhatsApp call quality). In-situ satisfaction is the primary signal -- we are building a custom pipeline for ourselves and will iterate based on direct experience. All session data (including failed and restarted sessions) is retained for debugging and improvement. Phase 1 is validated when the team uses Kotoleaf regularly for nemawashi and rates consistently >=4 stars.
 
 ### Phase 2 -- The Teacher
 
@@ -488,6 +491,15 @@ The API-first approach eliminates most licensing concerns:
 - Macis, M., Sonbul, S., & Alharbi, R. (2021). "The Effect of Spacing on Incidental and Deliberate Learning of L2 Collocations." *System*, 103, 102649. https://www.sciencedirect.com/science/article/pii/S0346251X21002037
 - FSRS benchmark (10k Anki users): https://github.com/open-spaced-repetition/srs-benchmark
 - `py-fsrs`: https://github.com/open-spaced-repetition/py-fsrs
+
+### In-Situ Vocabulary Learning
+- Lungu, M. et al. (2020). "Smart Subtitles for Vocabulary Learning." ACM CHI 2020. https://dl.acm.org/doi/abs/10.1145/3313831.3376558
+- Grossman, T. et al. (2022). "WordBee: Vocabulary Learning in Context of Online Reading." ACM CHI 2022. https://dl.acm.org/doi/10.1145/3491102.3501866
+- Cai, C. et al. (2015). "WaitChatter: A Chat-Based Vocabulary Learning System." ACM CHI 2015. https://dl.acm.org/doi/10.1145/2702123.2702267
+- "Beyond Flashcards: A Survey of Contextualized Vocabulary Learning Systems." arXiv 2310.14155, 2023. https://arxiv.org/abs/2310.14155
+
+### Clarification Detection
+- Li, Chen, & Martinez (2024). "I'm Sorry, What? Predicting Clarification Needs in Instructional Dialogues." Findings of EMNLP 2024. https://aclanthology.org/2024.findings-emnlp.467/
 
 ### Caption Reduction & Listening Pedagogy
 - Cárdenas, M. & Ramírez Orellana, D. (2024). "Progressive Reduction of Captions in Language Learning." *Journal of Information Technology Education: Innovations in Practice*, 23, 002. https://doi.org/10.28945/5263

@@ -135,8 +135,8 @@ Produces the rolling bilingual summaries that each participant reads in their we
 
 The summarization system uses a **three-tier context architecture**:
 
-- **Institutional context** -- organization-level knowledge loaded before the meeting: ChibaTech terminology, team structure, positions, hierarchy, industry vocabulary, and the institutional glossary. Updated rarely (when new terms are added to the glossary or organizational changes occur). Injected into every summarization round as stable background knowledge. *(Phase 1: empty stub -- institutional glossary is Phase 3.)*
-- **Meeting context** -- per-session knowledge set up at meeting start: uploaded meeting materials (slides, docs, briefing notes), per-session glossary from extracted terminology, and any cultural briefing notes. *(Phase 1: minimal -- no uploaded materials or relationship register. Phase 2 adds per-pair formality tracking.)*
+- **Institutional context** -- organization-level knowledge loaded before the meeting: ChibaTech terminology, team structure, positions, hierarchy, industry vocabulary, and the institutional glossary. Updated rarely (when new terms are added to the glossary or organizational changes occur). Injected into every summarization round as stable background knowledge. *(Phase 1: a brief organization description and a manually curated glossary of commonly used entities and acronyms. The full automated glossary pipeline -- ingestion from Workspace, GitHub, Slack -- is Phase 3.)*
+- **Meeting context** -- per-session knowledge set up at meeting start: uploaded meeting materials (slides, docs, briefing notes), per-session glossary from extracted terminology, and any cultural briefing notes. *(Phase 1: minimal -- no uploaded materials or relationship register. The user selects a default register preset from common options -- see below. Phase 2 adds automatic per-pair formality tracking.)*
 - **30-second context** -- the raw transcript from the last ~30 seconds (the most recent substantive utterances), including Deepgram's per-word language tags and speaker labels, providing immediate conversational context.
 
 Each summarization round:
@@ -158,7 +158,7 @@ Even fluent bilingual speakers encounter rare or uncommon kanji (難読漢字). 
 - **Japanese split**: kanji at or above a configurable JLPT threshold (default: N1) are color-highlighted with furigana (ruby text) above them. The reading is simply *there* -- no interaction required.
 - **English split**: the corresponding translated word or phrase is highlighted in the same color, creating a visual bridge between the two sides. A single color-coded pair communicates "this Japanese term = this English phrase" faster than any tooltip.
 - **Adjustable threshold**: participants who need more support lower the threshold to N2, N3, etc. Advanced learners who only struggle with the rarest terms keep it at N1. This is a per-participant setting tied to their growth profile.
-- **Set highlighting**: when a highlighted kanji is part of a compound (四字熟語, jukujikun, or multi-kanji term), the entire set is highlighted together rather than individual characters.
+- **Set highlighting**: when a highlighted kanji is part of a compound (四字熟語, jukujikun, or multi-kanji term), the entire set is highlighted together rather than individual characters. Compound boundaries are identified by **MeCab** (via `fugashi`, a Cython wrapper) using the `unidic-lite` dictionary. MeCab runs synchronously on the server after Claude produces each JP summary -- at ~1ms per parse for 1-3 sentences, it adds negligible latency. A single `fugashi.Tagger` instance is initialized at app startup and reused across requests.
 - **Both orientations**: works identically in portrait (both shared and solo modes) and landscape layouts.
 
 The furigana uses HTML `<ruby>` tags, sized to remain legible without cluttering the summary text. Since only threshold-exceeding kanji receive furigana (not all text), the display stays clean.
@@ -354,6 +354,7 @@ Estimated total cost: **~$0.75-0.95/hr**. Claude is called for periodic summariz
 | ASR + diarization + LID | Deepgram Nova-3 multilingual | Deepgram API (streaming WebSocket) |
 | Translation (pre-meeting, flashcards) | Google Cloud Translation v3 (NMT / TLLM) | Google Cloud API |
 | Contextual intelligence | Claude Haiku 4.5 / Claude Sonnet 4.6 | Anthropic API |
+| Japanese morphological analysis | MeCab via fugashi + unidic-lite | Server-side (app startup) |
 | User DB / Vocab / SRS | Firestore | GCP |
 | Glossary DB | Firestore | GCP |
 | Auth | Google Workspace SSO (OAuth 2.0) | Google Identity |
@@ -406,6 +407,15 @@ The simplest thing that is useful: two people, one conversation, a safety net wh
 - 1-to-1 mode only (2 participants)
 - Deepgram Nova-3 multilingual streaming ASR with code-switching + rolling audio buffer
 - Claude Haiku 4.5 for rolling bilingual summarization + clarification detection (tool call output with three-tier context management, producing both EN and JP summaries directly)
+- Per-participant register preset (selectable before or during meeting):
+
+  | Preset | Japanese Register | When to Use |
+  |--------|-------------------|-------------|
+  | **Workplace polite** (default) | です/ます base, moderate keigo | Colleagues who know each other |
+  | **Formal** | Full 丁寧語/敬語 | New relationships, executives, external partners |
+  | **Casual** | ため口/plain form | Close colleagues, informal settings |
+
+  The selected preset injects a register instruction into Claude's system prompt. Phase 2 replaces this manual setting with automatic per-pair register tracking.
 - Google SSO login
 - Basic vocab capture from clarification moments: term, context sentence, confidence score, encounter frequency, and audio snippet saved to per-participant encounter stack (no SRS scheduling or triage UI yet -- Phase 2)
 - Three audio source modes with a single unified backend:
@@ -413,9 +423,9 @@ The simplest thing that is useful: two people, one conversation, a safety net wh
   - In-person solo: two device microphones as separate streams (multichannel)
   - Google Meet screen-share (Phase 1.5): Chrome tab audio capture via `getDisplayMedia`, screen-shared back into Meet so both participants see the summary. Zero backend changes -- frontend toggle only. Chrome-only (Firefox/Safari lack tab audio capture).
 - Configurable summarization thresholds (utterance count, word/duration minimums, interval bounds)
-- Kanji assist: JLPT N1+ kanji highlighted with furigana on JP side, color-linked English equivalent on EN side, adjustable N-level threshold
+- Kanji assist: JLPT N1+ kanji highlighted with furigana on JP side, color-linked English equivalent on EN side, adjustable N-level threshold. Compound boundaries from MeCab/fugashi (synchronous, ~1ms per parse)
 
-**Not in Phase 1**: FSRS scheduling, flashcard review UI, institutional glossary, sentiment analysis, relationship register model (formality calibration). Phase 1 validates the core interaction: do rolling bilingual summaries + clarification detection help people have better bilingual conversations without touching the device? The screen-share mode (Phase 1.5) extends this validation to remote Google Meet conversations with minimal additional effort (a frontend audio source toggle).
+**Not in Phase 1**: FSRS scheduling, flashcard review UI, automated institutional glossary pipeline (Workspace/GitHub/Slack ingestion), sentiment analysis, automatic relationship register model (per-pair formality tracking -- Phase 1 uses manual register presets instead). Phase 1 validates the core interaction: do rolling bilingual summaries + clarification detection help people have better bilingual conversations without touching the device? The screen-share mode (Phase 1.5) extends this validation to remote Google Meet conversations with minimal additional effort (a frontend audio source toggle).
 
 **Success metric**: two ChibaTech colleagues have a bilingual nemawashi conversation and both report that (a) they felt more present in the conversation than with real-time subtitle translation, (b) the rolling summaries helped them follow along in their weaker language, and (c) the clarification detection captured vocabulary they actually struggled with.
 
@@ -462,6 +472,7 @@ The API-first approach eliminates most licensing concerns:
 | Dependency | License | Note |
 |------------|---------|------|
 | `py-fsrs` | MIT | No restrictions |
+| `fugashi` + `unidic-lite` | MIT / BSD | MeCab wrapper + UniDic dictionary. ~250MB disk for dictionary. |
 | Deepgram Nova-3 | Commercial API | SOC 2 Type II, HIPAA, GDPR. Data processing agreement available. |
 | Google Cloud Translation | Commercial API | GDPR compliant. Data not stored or used for training. Free tier 500K chars/month. |
 | Anthropic Claude | Commercial API | SOC 2, responsible AI usage policy. |

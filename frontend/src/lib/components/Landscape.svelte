@@ -1,7 +1,7 @@
 <script lang="ts">
 	import SummaryLine from './SummaryLine.svelte';
 	import KanjiAssist from './KanjiAssist.svelte';
-	import type { Summary } from '$lib/stores/session.svelte';
+	import { getLatestSummaryId, type Summary } from '$lib/stores/session.svelte';
 
 	interface Props {
 		summaries: Summary[];
@@ -11,6 +11,7 @@
 	let enContainer: HTMLElement | null = $state(null);
 	let jpContainer: HTMLElement | null = $state(null);
 
+	let latestId = $derived(getLatestSummaryId());
 	let latestTermPairs = $derived(
 		summaries.length > 0 ? summaries[summaries.length - 1].term_pairs : []
 	);
@@ -20,7 +21,7 @@
 	<div class="column en-column" bind:this={enContainer}>
 		<h2>English</h2>
 		{#each summaries as summary (summary.summary_id)}
-			<SummaryLine html={summary.en_html} isNew={summary.is_new} termPairs={summary.term_pairs} />
+			<SummaryLine html={summary.en_html} isNew={summary.summary_id === latestId} termPairs={summary.term_pairs} />
 		{/each}
 		<KanjiAssist containerElement={enContainer} termPairs={latestTermPairs} />
 	</div>
@@ -30,7 +31,7 @@
 	<div class="column jp-column" bind:this={jpContainer}>
 		<h2>日本語</h2>
 		{#each summaries as summary (summary.summary_id)}
-			<SummaryLine html={summary.jp_html} isNew={summary.is_new} termPairs={summary.term_pairs} />
+			<SummaryLine html={summary.jp_html} isNew={summary.summary_id === latestId} termPairs={summary.term_pairs} />
 		{/each}
 		<KanjiAssist containerElement={jpContainer} termPairs={latestTermPairs} />
 	</div>

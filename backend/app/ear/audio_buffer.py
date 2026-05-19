@@ -79,7 +79,6 @@ class AudioBuffer:
         buf = io.BytesIO()
         num_samples = len(pcm) // self._bytes_per_sample
         data_size = num_samples * self._bytes_per_sample
-        # WAV header
         buf.write(b"RIFF")
         buf.write(struct.pack("<I", 36 + data_size))
         buf.write(b"WAVE")

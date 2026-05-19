@@ -44,7 +44,6 @@ async def exchange_code(code: str) -> dict:
         resp.raise_for_status()
         tokens = resp.json()
 
-    async with httpx.AsyncClient() as client:
         resp = await client.get(
             GOOGLE_USERINFO_URL,
             headers={"Authorization": f"Bearer {tokens['access_token']}"},

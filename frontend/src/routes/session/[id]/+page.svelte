@@ -20,8 +20,7 @@
 	import PortraitShared from '$lib/components/PortraitShared.svelte';
 	import PortraitSolo from '$lib/components/PortraitSolo.svelte';
 	import Landscape from '$lib/components/Landscape.svelte';
-
-	const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
+	import { API_BASE } from '$lib/utils/api';
 
 	let socket: KotoleafSocket | null = null;
 	let mic: MicrophoneCapture | null = null;

@@ -1,3 +1,5 @@
+import warnings
+
 from pydantic_settings import BaseSettings
 
 
@@ -48,3 +50,10 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+if settings.jwt_secret == "dev-secret-change-me" and settings.environment != "development":
+    warnings.warn(
+        "KOTOLEAF_JWT_SECRET is using the default value in a non-development environment. "
+        "Set a strong secret via the KOTOLEAF_JWT_SECRET environment variable.",
+        stacklevel=1,
+    )

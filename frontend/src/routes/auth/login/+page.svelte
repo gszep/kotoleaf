@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-
-	const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
+	import { API_BASE } from '$lib/utils/api';
 
 	onMount(async () => {
 		const res = await fetch(`${API_BASE}/auth/login`);

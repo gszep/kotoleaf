@@ -10,7 +10,6 @@ export interface Summary {
 	summary_id: string;
 	en_html: string;
 	jp_html: string;
-	is_new: boolean;
 	term_pairs: TermPair[];
 }
 
@@ -30,9 +29,11 @@ export function getSummaries(): Summary[] {
 	return summaries;
 }
 
+export function getLatestSummaryId(): string | null {
+	return summaries.length > 0 ? summaries[summaries.length - 1].summary_id : null;
+}
+
 export function addSummary(summary: Summary): void {
-	// Mark all existing summaries as not new
-	summaries = summaries.map((s) => ({ ...s, is_new: false }));
 	summaries = [...summaries, summary];
 }
 

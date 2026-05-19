@@ -1,8 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { getToken } from '$lib/stores/auth.svelte';
-
-	const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
+	import { API_BASE } from '$lib/utils/api';
 
 	let register = $state('workplace_polite');
 	let audioSource = $state('microphone');

@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { getTermColor } from '$lib/utils/color-palette';
-
 	interface Props {
 		html: string;
 		isNew: boolean;

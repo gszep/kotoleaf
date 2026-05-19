@@ -6,9 +6,7 @@ import {
 	type Summary
 } from '$lib/stores/session.svelte';
 import { getTermColor } from '$lib/utils/color-palette';
-
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
-const WS_BASE = API_BASE.replace(/^http/, 'ws');
+import { WS_BASE } from '$lib/utils/api';
 
 export class KotoleafSocket {
 	private ws: WebSocket | null = null;
@@ -98,7 +96,7 @@ export class KotoleafSocket {
 
 			case 'summary': {
 				const termPairs = (msg.term_pairs as Array<Record<string, unknown>>).map(
-					(tp, i: number) => ({
+					(tp) => ({
 						...tp,
 						color: getTermColor(tp.index as number)
 					})
@@ -107,7 +105,6 @@ export class KotoleafSocket {
 					summary_id: msg.summary_id as string,
 					en_html: msg.en_html as string,
 					jp_html: msg.jp_html as string,
-					is_new: msg.is_new as boolean,
 					term_pairs: termPairs as Summary['term_pairs']
 				});
 				break;

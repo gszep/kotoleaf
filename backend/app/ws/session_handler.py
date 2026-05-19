@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import time
 
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -62,7 +63,7 @@ class SessionHandler:
 
                 if data.get("bytes"):
                     audio_bytes = data["bytes"]
-                    self._audio_buffer.append(audio_bytes, 0.0)
+                    self._audio_buffer.append(audio_bytes, time.monotonic())
                     await self._deepgram.send_audio(audio_bytes)
 
                 elif data.get("text"):
@@ -120,13 +121,15 @@ class SessionHandler:
                 "term_pairs": formatted["term_pairs"],
             })
 
-            await self._send_json({
+            send_task = self._send_json({
                 "type": "summary",
                 "summary_id": summary_id,
                 **formatted,
             })
 
-            if result.clarifications:
+            async def _save_clarifications() -> None:
+                if not result.clarifications:
+                    return
                 encounters = process_clarifications(
                     result.clarifications,
                     self._session_id,
@@ -134,6 +137,8 @@ class SessionHandler:
                 )
                 for encounter, audio_clip in encounters:
                     await save_encounter(self._user_id, encounter)
+
+            await asyncio.gather(send_task, _save_clarifications())
 
         except Exception:
             logger.exception("Summarization error")

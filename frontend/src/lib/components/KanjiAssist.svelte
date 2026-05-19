@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { getTermColor } from '$lib/utils/color-palette';
-	import { onMount } from 'svelte';
 
 	interface Props {
 		containerElement: HTMLElement | null;

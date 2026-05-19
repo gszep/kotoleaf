@@ -17,7 +17,6 @@ class TranscriptBuffer:
         self._prune()
 
     def get_window(self) -> list[TranscriptSegment]:
-        self._prune()
         return list(self._segments)
 
     def get_text(self) -> str:

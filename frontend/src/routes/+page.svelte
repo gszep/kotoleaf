@@ -1,8 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { getAuth, setAuth } from '$lib/stores/auth.svelte';
-
-	const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
+	import { API_BASE } from '$lib/utils/api';
 
 	let backendStatus = $state<'checking' | 'ok' | 'error'>('checking');
 

@@ -1,0 +1,33 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    environment:
+      - FIRESTORE_EMULATOR_HOST=firestore:8080
+      - KOTOLEAF_GCP_PROJECT_ID=kotoleaf-dev
+      - KOTOLEAF_CORS_ORIGINS=["http://localhost:5173"]
+    depends_on:
+      - firestore
+    volumes:
+      - ./backend/app:/app/app
+      - ./backend/data:/app/data
+    command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_BASE=http://localhost:8000
+    volumes:
+      - ./frontend/src:/app/src
+    command: npm run dev -- --host 0.0.0.0 --port 5173
+
+  firestore:
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:latest
+    command: gcloud emulators firestore start --host-port=0.0.0.0:8080 --project=kotoleaf-dev
+    ports:
+      - "8080:8080"

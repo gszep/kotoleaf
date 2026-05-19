@@ -1,0 +1,29 @@
+[project]
+name = "kotoleaf-backend"
+version = "0.1.0"
+description = "Kotoleaf bilingual interpretation server"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "pydantic>=2.10",
+    "pydantic-settings>=2.7",
+    "httpx>=0.28",
+    "websockets>=14.0",
+    "deepgram-sdk>=3.9",
+    "fugashi>=1.4",
+    "unidic-lite>=1.0.8",
+    "google-cloud-firestore>=2.19",
+    "google-auth>=2.37",
+    "google-auth-oauthlib>=1.2",
+    "PyJWT>=2.10",
+    "python-multipart>=0.0.18",
+    "claude-agent-sdk>=0.2.82",
+    "anthropic>=0.102.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+]

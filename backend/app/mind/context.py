@@ -51,7 +51,13 @@ Report the likely confusing term with its reading, meaning, context sentence, an
 (0-1) that this is genuine confusion vs conversational hedging.
 6. The transcript may have speaker attribution errors. Use conversational context to infer \
 the most likely speaker for each utterance.
+7. Return a speaker_map object mapping raw speaker IDs ("0", "1", ...) to your best-guess \
+display names. Infer names from self-introductions, how others address them, or contextual cues. \
+If you cannot infer a name, use the original label (e.g. "Speaker 0"). \
+If two IDs clearly refer to the same person (diarization error), map both IDs to the same name. \
+Names marked with * are user-confirmed — preserve them exactly (without the *).
 
+{speaker_context}\
 You MUST respond using the produce_summary tool.\
 """
 
@@ -59,9 +65,20 @@ You MUST respond using the produce_summary tool.\
 def build_system_prompt(
     register: Register,
     meeting_context: str = "",
+    speaker_map: dict[str, str] | None = None,
 ) -> str:
+    if speaker_map:
+        import json
+        speaker_context = (
+            "## Current speaker map (from previous segments)\n"
+            f"{json.dumps(speaker_map, ensure_ascii=False)}\n\n"
+        )
+    else:
+        speaker_context = ""
+
     return SYSTEM_PROMPT_TEMPLATE.format(
         register_instruction=REGISTER_INSTRUCTIONS[register],
         institutional_context=INSTITUTIONAL_CONTEXT,
         meeting_context=meeting_context or "No additional meeting context provided.",
+        speaker_context=speaker_context,
     )

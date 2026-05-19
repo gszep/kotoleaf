@@ -21,9 +21,12 @@ export interface TranscriptEntry {
 
 export type ConnectionState = 'disconnected' | 'connecting' | 'listening' | 'processing' | 'error';
 
+export type SpeakerMap = Record<string, string>;
+
 let summaries = $state<Summary[]>([]);
 let transcript = $state<TranscriptEntry[]>([]);
 let connectionState = $state<ConnectionState>('disconnected');
+let speakerMap = $state<SpeakerMap>({});
 
 export function getSummaries(): Summary[] {
 	return summaries;
@@ -53,8 +56,21 @@ export function setConnectionState(state: ConnectionState): void {
 	connectionState = state;
 }
 
+export function getSpeakerMap(): SpeakerMap {
+	return speakerMap;
+}
+
+export function setSpeakerMap(map: SpeakerMap): void {
+	speakerMap = map;
+}
+
+export function updateSpeaker(speakerId: string, name: string): void {
+	speakerMap = { ...speakerMap, [speakerId]: name };
+}
+
 export function clearSession(): void {
 	summaries = [];
 	transcript = [];
 	connectionState = 'disconnected';
+	speakerMap = {};
 }

@@ -3,6 +3,7 @@ import {
 	addSummary,
 	addTranscriptEntry,
 	setConnectionState,
+	setSpeakerMap,
 	type Summary
 } from '$lib/stores/session.svelte';
 import { getTermColor } from '$lib/utils/color-palette';
@@ -60,6 +61,10 @@ export class KotoleafSocket {
 		this.sendJson({ type: 'update_thresholds', config });
 	}
 
+	updateSpeaker(speakerId: string, name: string): void {
+		this.sendJson({ type: 'update_speaker', speaker_id: speakerId, name });
+	}
+
 	endSession(): void {
 		this.sendJson({ type: 'end_session' });
 	}
@@ -109,6 +114,10 @@ export class KotoleafSocket {
 				});
 				break;
 			}
+
+			case 'speaker_map':
+				setSpeakerMap(msg.speaker_map as Record<string, string>);
+				break;
 
 			case 'error':
 				console.error('Server error:', msg.message);

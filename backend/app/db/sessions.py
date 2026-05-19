@@ -53,6 +53,13 @@ async def save_summary(session_id: str, summary_data: dict) -> str:
     return summary_id
 
 
+async def save_speaker_map(session_id: str, speaker_map: dict[str, str]) -> None:
+    db = get_client()
+    await db.collection("sessions").document(session_id).update(
+        {"speaker_map": speaker_map}
+    )
+
+
 async def list_sessions(user_id: str) -> list[dict]:
     db = get_client()
     docs = (

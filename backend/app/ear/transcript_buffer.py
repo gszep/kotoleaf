@@ -19,11 +19,15 @@ class TranscriptBuffer:
     def get_window(self) -> list[TranscriptSegment]:
         return list(self._segments)
 
-    def get_text(self) -> str:
+    def get_text(self, speaker_map: dict[str, str] | None = None) -> str:
         lines = []
         for seg in self.get_window():
-            speaker = f"Speaker {seg.speaker}" if seg.speaker is not None else "Speaker"
-            lines.append(f"[{speaker}]: {seg.text}")
+            if seg.speaker is not None:
+                raw_id = str(seg.speaker)
+                name = (speaker_map or {}).get(raw_id, f"Speaker {seg.speaker}")
+            else:
+                name = "Speaker"
+            lines.append(f"[{name}]: {seg.text}")
         return "\n".join(lines)
 
     def clear(self) -> None:

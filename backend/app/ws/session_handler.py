@@ -5,7 +5,7 @@ import time
 
 from fastapi import WebSocket, WebSocketDisconnect
 
-from app.db.sessions import save_summary
+from app.db.sessions import save_speaker_map, save_summary
 from app.db.vocab import save_encounter
 from app.ear.audio_buffer import AudioBuffer
 from app.ear.deepgram_client import DeepgramStreamer
@@ -47,6 +47,8 @@ class SessionHandler:
         self._summarizer = Summarizer()
         self._deepgram: DeepgramStreamer | None = None
         self._summarizing = False
+        self._speaker_map: dict[str, str] = {}
+        self._user_overrides: set[str] = set()
 
     async def run(self) -> None:
         self._deepgram = DeepgramStreamer(
@@ -80,7 +82,8 @@ class SessionHandler:
     def _handle_transcript(self, segment: TranscriptSegment) -> None:
         self._transcript_buffer.add(segment)
 
-        speaker = f"Speaker {segment.speaker}" if segment.speaker is not None else "Speaker"
+        raw_id = str(segment.speaker) if segment.speaker is not None else ""
+        speaker = self._speaker_map.get(raw_id, f"Speaker {segment.speaker}" if segment.speaker is not None else "Speaker")
         final_tag = "FINAL" if segment.is_final else "interim"
         logger.info(f"[{final_tag}] [{speaker}] {segment.text}")
 
@@ -93,25 +96,34 @@ class SessionHandler:
         }))
 
         if self._trigger.check(segment) and not self._summarizing:
-            logger.info(f"[TRIGGER] Summarization triggered — buffer:\n{self._transcript_buffer.get_text()}")
+            logger.info(f"[TRIGGER] Summarization triggered — buffer:\n{self._transcript_buffer.get_text(self._speaker_map)}")
             asyncio.create_task(self._run_summarization())
 
     async def _run_summarization(self) -> None:
         self._summarizing = True
         try:
-            transcript_text = self._transcript_buffer.get_text()
+            transcript_text = self._transcript_buffer.get_text(self._speaker_map)
             if not transcript_text.strip():
                 return
 
             await self._send_status("processing")
 
+            display_map = {
+                raw_id: f"{name} *" if raw_id in self._user_overrides else name
+                for raw_id, name in self._speaker_map.items()
+            } or None
+
             result = await self._summarizer.summarize(
                 transcript_text=transcript_text,
                 register=self._register,
+                speaker_map=display_map,
             )
 
             if result is None:
                 return
+
+            if self._merge_speaker_map(result.speaker_map):
+                await self._broadcast_speaker_map()
 
             formatted = format_summary(result, self._jlpt_threshold)
 
@@ -165,9 +177,34 @@ class SessionHandler:
             current.update(config_data)
             self._trigger.config = SummarizationConfig(**current)
 
+        elif msg_type == "update_speaker":
+            raw_id = str(msg.get("speaker_id", ""))
+            name = msg.get("name", "").strip()
+            if raw_id and name:
+                self._speaker_map[raw_id] = name
+                self._user_overrides.add(raw_id)
+                await self._broadcast_speaker_map()
+
         elif msg_type == "end_session":
             if self._deepgram:
                 await self._deepgram.stop()
+
+    def _merge_speaker_map(self, claude_map: dict[str, str]) -> bool:
+        changed = False
+        for raw_id, name in claude_map.items():
+            if raw_id in self._user_overrides:
+                continue
+            if self._speaker_map.get(raw_id) != name:
+                self._speaker_map[raw_id] = name
+                changed = True
+        return changed
+
+    async def _broadcast_speaker_map(self) -> None:
+        await self._send_json({
+            "type": "speaker_map",
+            "speaker_map": self._speaker_map,
+        })
+        asyncio.create_task(save_speaker_map(self._session_id, self._speaker_map))
 
     def _handle_deepgram_error(self, error: Exception) -> None:
         logger.error(f"Deepgram error in session {self._session_id}: {error}")

@@ -38,6 +38,7 @@ class Session(BaseModel):
     summarization_config: SummarizationConfig = Field(
         default_factory=SummarizationConfig
     )
+    speaker_map: dict[str, str] = {}
     started_at: datetime = Field(default_factory=datetime.utcnow)
     ended_at: datetime | None = None
     rating: int | None = Field(default=None, ge=1, le=5)

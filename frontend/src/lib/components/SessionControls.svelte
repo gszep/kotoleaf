@@ -1,5 +1,6 @@
 <script lang="ts">
 	import ConnectionStatus from './ConnectionStatus.svelte';
+	import SpeakerList from './SpeakerList.svelte';
 	import {
 		getRegister,
 		setRegister,
@@ -15,10 +16,11 @@
 		onStart: () => void;
 		onStop: () => void;
 		onRegisterChange: (register: Register) => void;
+		onRenameSpeaker: (speakerId: string, name: string) => void;
 		isActive: boolean;
 	}
 
-	let { onStart, onStop, onRegisterChange, isActive }: Props = $props();
+	let { onStart, onStop, onRegisterChange, onRenameSpeaker, isActive }: Props = $props();
 
 	let currentRegister = $derived(getRegister());
 	let currentMode = $derived(getDisplayMode());
@@ -76,6 +78,8 @@
 				<option value="screen_share">Screen Share</option>
 			</select>
 		</label>
+
+		<SpeakerList {onRenameSpeaker} />
 	</div>
 </div>
 

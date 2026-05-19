@@ -5,7 +5,8 @@
 	import {
 		getSummaries,
 		getConnectionState,
-		clearSession
+		clearSession,
+		updateSpeaker
 	} from '$lib/stores/session.svelte';
 	import {
 		getDisplayMode,
@@ -82,6 +83,11 @@
 		socket?.updateRegister(register);
 	}
 
+	function handleRenameSpeaker(speakerId: string, name: string) {
+		socket?.updateSpeaker(speakerId, name);
+		updateSpeaker(speakerId, name);
+	}
+
 	onDestroy(() => {
 		mic?.stop();
 		screenShare?.stop();
@@ -95,6 +101,7 @@
 		onStart={startSession}
 		onStop={stopSession}
 		onRegisterChange={handleRegisterChange}
+		onRenameSpeaker={handleRenameSpeaker}
 	/>
 
 	<div class="display-area">

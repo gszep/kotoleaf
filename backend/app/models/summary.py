@@ -102,6 +102,16 @@ SUMMARIZATION_TOOL = {
                     },
                 },
             },
+            "speaker_map": {
+                "type": "object",
+                "description": (
+                    "Mapping of raw Deepgram speaker IDs (as strings) to inferred "
+                    "speaker names. If two IDs belong to the same person, map both "
+                    'to the same name. Example: {"0": "Grisha", "1": "Tanaka-san", '
+                    '"2": "Grisha"}'
+                ),
+                "additionalProperties": {"type": "string"},
+            },
         },
     },
 }
@@ -131,3 +141,4 @@ class SummaryResult(BaseModel):
     is_new: bool
     clarifications: list[ClarificationDetection] = []
     term_pairs: list[TermPair] = []
+    speaker_map: dict[str, str] = {}

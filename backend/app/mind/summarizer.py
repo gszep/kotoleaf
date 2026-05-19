@@ -33,6 +33,7 @@ EXAMPLE_OUTPUT = json.dumps(
         "term_pairs": [
             {"index": 1, "jp_term": "稟議", "reading": "りんぎ", "en_term": "approval process"}
         ],
+        "speaker_map": {"0": "Speaker 0", "1": "Speaker 1"},
     },
     ensure_ascii=False,
     indent=2,
@@ -56,8 +57,9 @@ class Summarizer:
         transcript_text: str,
         register: Register,
         meeting_context: str = "",
+        speaker_map: dict[str, str] | None = None,
     ) -> SummaryResult | None:
-        system_prompt = build_system_prompt(register, meeting_context)
+        system_prompt = build_system_prompt(register, meeting_context, speaker_map)
         system_with_schema = f"{system_prompt}\n\n{JSON_INSTRUCTION}"
 
         t0 = time.monotonic()

@@ -5,6 +5,14 @@ Firestore, Google login, an LLM summary, or a Paseo daemon upgrade. It does not
 record your microphone or join a meeting. Keep your original recording and
 check that both speakers are audible before relying on it for a lesson.
 
+The frontend's `/lesson/record` page provides local-only microphone recording or
+combined Meet-tab and microphone recording. It needs localhost/HTTPS and explicit
+browser capture permission. Select the Meet tab with audio sharing enabled, then
+record and play back a short two-speaker test. Stop, download the original file,
+and confirm it exists before starting another recording. No audio is uploaded by
+that page; feed the downloaded file to the command below. Browser audio-source
+support varies. Keep the tab open and device awake until download completes.
+
 From the backend directory, using the project's Python environment:
 
 ```sh

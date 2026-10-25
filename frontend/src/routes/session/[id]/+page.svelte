@@ -34,6 +34,7 @@
 	let displayMode = $derived(getDisplayMode());
 
 	async function startSession() {
+		if (!sessionId) return;
 		clearSession();
 
 		socket = new KotoleafSocket(sessionId);

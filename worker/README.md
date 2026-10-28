@@ -29,10 +29,10 @@ binding, nothing is deleted.
 - **Paseo (dictation and voice):**
   - `PASEO_DICTATION_STT_PROVIDER=openai`, `PASEO_VOICE_STT_PROVIDER=openai`
   - `OPENAI_STT_BASE_URL=https://kotoleaf.wandering-sky-fcce.workers.dev/v1`
-  - `OPENAI_STT_API_KEY=<grisha-paseo token>`
+  - `OPENAI_STT_API_KEY=<grisha-dictation token>`
   - `STT_MODEL=nova-3` (any value other than the `gpt-4o-*` names, so Paseo doesn't ask for logprobs)
 - **Anarlog:** Settings → Transcription → Custom. Set the base URL to
-  `https://kotoleaf.wandering-sky-fcce.workers.dev` and the API key to the `grisha-anarlog`
+  `https://kotoleaf.wandering-sky-fcce.workers.dev` and the API key to the `grisha-dictation`
   token. Select English and Japanese as spoken languages.
 - **Agents (OpenCode remote MCP):**
   `"kotoleaf": { "type": "remote", "url": "https://kotoleaf.wandering-sky-fcce.workers.dev/mcp", "headers": { "Authorization": "Bearer <grisha-agents token>" } }`

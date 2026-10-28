@@ -12,7 +12,7 @@ transcripts so agents can read them during the meeting.
 | `POST /v1/listen` | Anarlog after-recording (Deepgram-compatible) | Streamed through; not stored; Cloudflare caps uploads at 100 MB |
 | `GET /meetings`, `/meetings/<id\|latest>/transcript?since=&minutes=&language=`, `/meetings/<id\|latest>/raw?since=&limit=` | Agents and scripts | Compact text lines or raw Deepgram JSON |
 | `POST /mcp` | Agents (MCP over HTTP, stateless JSON) | Tools: `list_meetings`, `transcript`, `raw_messages` |
-| `GET /archive`, `/archive/<id>` | Older meetings | Needs the R2 binding (see Setup) |
+| `GET /archive`, `/archive/<id>`, `POST /archive/run` | Older meetings | gzipped JSON lines in R2; `run` archives now instead of waiting for Sunday |
 
 Every route except `/health` needs `Authorization: Bearer <token>` or `Token <token>`.
 Tokens are the `ACCESS_TOKENS` secret, as comma-separated `label:token` pairs. The label is
@@ -56,13 +56,9 @@ Secrets are piped in, never typed or echoed:
 - `DEEPGRAM_API_KEY`: from GCP Secret Manager `kotoleaf/deepgram-api-key`.
 - `ACCESS_TOKENS`: `paste -sd, ~/.config/kotoleaf/access-tokens | tr -d '\n' | npx wrangler secret put ACCESS_TOKENS`.
 
-Still to do in the Cloudflare dashboard:
-
-1. **Workers Paid ($5/month).** A live session measured 42 ms CPU per 16 s of audio, which
-   is about 20 s for a 2-hour meeting. The free plan allows 10 ms per request. After
-   upgrading, add `"limits": { "cpu_ms": 300000 }` to `wrangler.jsonc`.
-2. **Enable R2.** Then run `npx wrangler r2 bucket create kotoleaf-transcripts` and add
-   `"r2_buckets": [{ "binding": "ARCHIVE", "bucket_name": "kotoleaf-transcripts" }]`.
+Plan and storage (done 28 Oct): Workers Paid with `limits.cpu_ms = 300000`, because a live session
+measured 42 ms CPU per 16 s of audio, or about 20 s for 2 hours. The R2 bucket `kotoleaf-transcripts`
+is bound as `ARCHIVE`.
 
 ## Verified (28 Oct 2026)
 

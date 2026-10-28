@@ -50,7 +50,7 @@ const dir = mkdtempSync(join(tmpdir(), "kotoleaf-e2e-"));
 writeFileSync(".dev.vars", `DEEPGRAM_API_KEY=mock-deepgram-key\nACCESS_TOKENS=local:${TOKEN}\n`);
 const wrangler = spawn(
 	"npx",
-	["wrangler", "dev", "--port", String(WORKER_PORT), "--ip", "127.0.0.1", "--persist-to", dir, "--var", `DEEPGRAM_URL:http://127.0.0.1:${MOCK_PORT}/v1/listen`],
+	["wrangler", "dev", "--port", String(WORKER_PORT), "--ip", "127.0.0.1", "--persist-to", dir, "--var", `DEEPGRAM_URL:http://127.0.0.1:${MOCK_PORT}/v1/listen`, "--var", "HOT_DAYS:0"],
 	{ stdio: ["ignore", "pipe", "pipe"] },
 );
 let log = "";
@@ -138,6 +138,18 @@ try {
 	assert.deepEqual((await rpc("tools/list")).result.tools.map((t) => t.name), ["list_meetings", "transcript", "raw_messages"]);
 	const call = await rpc("tools/call", { name: "transcript", arguments: { language: "ja" } });
 	assert.match(call.result.content[0].text, /今日は meeting/);
+
+	// Archive to R2 (HOT_DAYS=0 locally, so every meeting is old enough).
+	const run = await (await fetch(`${base}/archive/run`, { method: "POST", headers: auth })).json();
+	assert.equal(run.archived.length, 1);
+	const listing = await (await fetch(`${base}/archive`, { headers: auth })).json();
+	assert.equal(listing[0].id, run.archived[0]);
+	const gz = await fetch(`${base}/archive/${run.archived[0]}`, { headers: auth });
+	const { gunzipSync } = await import("node:zlib");
+	const lines = gunzipSync(Buffer.from(await gz.arrayBuffer())).toString().trim().split("\n").map((l) => JSON.parse(l));
+	assert.equal(lines[0].meeting.id, run.archived[0]);
+	assert.equal(lines[1].message.is_final, true);
+	assert.deepEqual(await (await fetch(`${base}/meetings`, { headers: auth })).json(), [], "archived meetings leave hot storage");
 
 	console.log("local e2e: all checks passed");
 } finally {

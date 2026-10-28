@@ -7,6 +7,9 @@
 	"vars": { "HOT_DAYS": "7", "DEEPGRAM_URL": "https://api.deepgram.com/v1/listen" },
 	"rules": [{ "type": "Text", "globs": ["**/*.txt"], "fallthrough": true }],
 	"durable_objects": { "bindings": [{ "name": "TRANSCRIPTS", "class_name": "Transcripts" }] },
+	"r2_buckets": [{ "binding": "ARCHIVE", "bucket_name": "kotoleaf-transcripts" }],
 	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["Transcripts"] }],
+	// A live session measured 42 ms CPU per 16 s of audio (~20 s for 2 h); the paid default is 30 s.
+	"limits": { "cpu_ms": 300000 },
 	"observability": { "enabled": true }
 }

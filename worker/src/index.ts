@@ -22,7 +22,7 @@ export default {
 			}
 			if (url.pathname === "/mcp") return await mcp(request, env);
 			if (url.pathname.startsWith("/meetings")) return await meetings(url, env);
-			if (url.pathname.startsWith("/archive")) return await archive(url, env);
+			if (url.pathname.startsWith("/archive")) return await archive(request, url, env);
 			return Response.json({ error: "not found" }, { status: 404 });
 		} catch (error) {
 			return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 502 });
@@ -195,10 +195,12 @@ async function meetings(url: URL, env: Env): Promise<Response> {
 	return Response.json({ error: "not found" }, { status: 404 });
 }
 
-// GET /archive lists archived meetings; GET /archive/<id> returns its gzipped JSON lines.
-async function archive(url: URL, env: Env): Promise<Response> {
+// GET /archive lists archived meetings; GET /archive/<id> returns its gzipped JSON lines;
+// POST /archive/run archives meetings older than HOT_DAYS now instead of waiting for Sunday.
+async function archive(request: Request, url: URL, env: Env): Promise<Response> {
 	if (!env.ARCHIVE) return Response.json({ error: "archive storage not configured" }, { status: 503 });
 	const id = url.pathname.split("/").filter(Boolean)[1];
+	if (id === "run" && request.method === "POST") return Response.json({ archived: await store(env).archiveOld() });
 	if (!id) {
 		const listing = await env.ARCHIVE.list({ prefix: "meetings/", limit: 1000 });
 		return Response.json(listing.objects.map((o) => ({ id: o.key.slice(9, -9), bytes: o.size, ...o.customMetadata })));

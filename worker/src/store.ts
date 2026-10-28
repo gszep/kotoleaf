@@ -126,6 +126,13 @@ export class Transcripts extends DurableObject<Env> {
 	// Weekly: compress each meeting older than HOT_DAYS into one JSON-lines file in R2
 	// (a metadata line, then one line per stored Deepgram message), then delete it here.
 	async alarm(): Promise<void> {
+		await this.archiveOld();
+		await this.ctx.storage.setAlarm(nextArchiveTime(Date.now()));
+	}
+
+	// Also callable on demand (POST /archive/run). Returns the archived meeting ids.
+	async archiveOld(): Promise<string[]> {
+		const archived: string[] = [];
 		const cutoff = archiveCutoff(Date.now(), Number(this.env.HOT_DAYS || "7"));
 		const old = this.sql.exec("SELECT id, source, started, ended FROM meetings WHERE started < ?", cutoff).toArray() as unknown as Meeting[];
 		for (const meeting of old) {
@@ -134,8 +141,9 @@ export class Transcripts extends DurableObject<Env> {
 			await this.archive(meeting);
 			this.sql.exec("DELETE FROM messages WHERE meeting_id = ?", meeting.id);
 			this.sql.exec("DELETE FROM meetings WHERE id = ?", meeting.id);
+			archived.push(meeting.id);
 		}
-		await this.ctx.storage.setAlarm(nextArchiveTime(Date.now()));
+		return archived;
 	}
 
 	private async archive(meeting: Meeting): Promise<void> {

@@ -1,0 +1,12 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "kotoleaf",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-10-01",
+	"workers_dev": true,
+	"vars": { "HOT_DAYS": "7", "DEEPGRAM_URL": "https://api.deepgram.com/v1/listen" },
+	"rules": [{ "type": "Text", "globs": ["**/*.txt"], "fallthrough": true }],
+	"durable_objects": { "bindings": [{ "name": "TRANSCRIPTS", "class_name": "Transcripts" }] },
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["Transcripts"] }],
+	"observability": { "enabled": true }
+}

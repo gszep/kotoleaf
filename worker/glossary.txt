@@ -1,0 +1,9 @@
+# Keyterms sent to Deepgram with every request (one per line, max 100 in total).
+# Names, acronyms and institutional terms that are often misrecognised.
+Kotoleaf
+Chiba Tech
+千葉工業大学
+Henkaku
+Steffen
+Steffen Plunder
+Grisha

@@ -15,6 +15,8 @@ const OVERRIDDEN = new Set([
 	"keywords",
 	"keyterm",
 	"version",
+	// Worker-only option, never forwarded to Deepgram.
+	"store",
 ]);
 
 export type Mode = "live" | "batch";

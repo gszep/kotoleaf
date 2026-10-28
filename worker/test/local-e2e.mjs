@@ -131,6 +131,23 @@ try {
 	assert.match(raw, /"is_final":true/);
 	assert.match(await (await fetch(`${base}/meetings/latest/transcript?since=1`, { headers: auth })).text(), /no new lines/);
 
+	// Transient stream: store=false relays results but persists nothing and is not forwarded.
+	const before = (await (await fetch(`${base}/meetings`, { headers: auth })).json()).length;
+	const transient = new WebSocket(`ws://127.0.0.1:${WORKER_PORT}/v1/listen?encoding=linear16&sample_rate=16000&store=false`, { headers: { Authorization: `Token ${TOKEN}` } });
+	let transientHeader;
+	transient.on("upgrade", (res) => (transientHeader = res.headers["x-kotoleaf-meeting"]));
+	await new Promise((resolve, reject) => {
+		let n = 0;
+		transient.on("open", () => transient.send(new Uint8Array(320)));
+		transient.on("message", () => ++n === 2 && resolve());
+		transient.on("error", reject);
+	});
+	transient.close(1000);
+	await new Promise((r) => setTimeout(r, 1000));
+	assert.equal(transientHeader, undefined);
+	assert.equal(new URL(seen.filter((s) => s.ws).at(-1).url, "http://x").searchParams.has("store"), false);
+	assert.equal((await (await fetch(`${base}/meetings`, { headers: auth })).json()).length, before, "store=false creates no meeting");
+
 	// MCP over stateless HTTP.
 	const rpc = async (method, params) =>
 		(await fetch(`${base}/mcp`, { method: "POST", headers: { ...auth, "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) })).json();

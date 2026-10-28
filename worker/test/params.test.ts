@@ -50,3 +50,9 @@ test("archive runs next Sunday 03:00 JST", () => {
 	assert.equal(new Date(nextArchiveTime(saturdayMorning)).toISOString(), "2026-10-31T18:00:00.000Z");
 	assert.equal(archiveCutoff(8 * 86_400_000, 7), 86_400_000);
 });
+
+test("store is a worker-only option and is not forwarded", () => {
+	const q = deepgramQuery(new URLSearchParams("store=false&encoding=linear16"), [], "live");
+	assert.equal(q.has("store"), false);
+	assert.equal(q.get("encoding"), "linear16");
+});

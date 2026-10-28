@@ -8,7 +8,7 @@ transcripts so agents can read them during the meeting.
 | Route | For | Notes |
 |---|---|---|
 | `POST /v1/audio/transcriptions` | Paseo dictation (OpenAI-compatible) | Model and language from the client are ignored |
-| `GET /v1/listen` (WebSocket) | Anarlog live (Deepgram-compatible) | Audio passes through; every non-interim Deepgram message is stored verbatim |
+| `GET /v1/listen` (WebSocket) | Anarlog live, FlowAtlas relay (Deepgram-compatible) | Audio passes through; every non-interim Deepgram message is stored verbatim. Add `store=false` for a transient stream: results are relayed, nothing is stored, and no meeting is created |
 | `POST /v1/listen` | Anarlog after-recording (Deepgram-compatible) | Streamed through; not stored; Cloudflare caps uploads at 100 MB |
 | `GET /meetings`, `/meetings/<id\|latest>/transcript?since=&minutes=&language=`, `/meetings/<id\|latest>/raw?since=&limit=` | Agents and scripts | Compact text lines or raw Deepgram JSON |
 | `POST /mcp` | Agents (MCP over HTTP, stateless JSON) | Tools: `list_meetings`, `transcript`, `raw_messages` |

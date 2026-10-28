@@ -104,15 +104,17 @@ async function live(request: Request, env: Env, ctx: ExecutionContext, label: st
 	// Newer compatibility dates deliver binary frames as Blob; audio must pass through as bytes.
 	for (const socket of [server, upstream]) (socket as unknown as { binaryType: string }).binaryType = "arraybuffer";
 
+	// `store=false` keeps this stream transient: nothing is written to the transcript store.
+	const persist = new URL(request.url).searchParams.get("store") !== "false";
 	const transcripts = store(env);
-	const meeting = await transcripts.start(label);
+	const meeting = persist ? await transcripts.start(label) : null;
 	// Writes are chained so stored messages keep Deepgram's order.
 	let writes: Promise<unknown> = Promise.resolve();
 	let closed = false;
 	const finish = (code: number, reason: string, target: WebSocket) => {
 		if (closed) return;
 		closed = true;
-		writes = writes.then(() => transcripts.end(meeting));
+		if (meeting) writes = writes.then(() => transcripts.end(meeting));
 		// The connection is gone by now; keep the Worker alive until pending writes land.
 		ctx.waitUntil(writes);
 		try {
@@ -130,7 +132,7 @@ async function live(request: Request, env: Env, ctx: ExecutionContext, label: st
 			server.send(event.data);
 		} catch {}
 		// Interim results are not stored, so skip the storage call for them (a cheap string check, no parse).
-		if (typeof event.data === "string" && !event.data.includes('"is_final":false')) {
+		if (meeting && typeof event.data === "string" && !event.data.includes('"is_final":false')) {
 			const data = event.data;
 			writes = writes.then(() => transcripts.append(meeting, data)).catch(() => {});
 		}
@@ -140,7 +142,7 @@ async function live(request: Request, env: Env, ctx: ExecutionContext, label: st
 	server.addEventListener("error", () => finish(1011, "client error", upstream));
 	upstream.addEventListener("error", () => finish(1011, "upstream error", server));
 
-	return new Response(null, { status: 101, webSocket: client, headers: { "x-kotoleaf-meeting": meeting } });
+	return new Response(null, { status: 101, webSocket: client, headers: meeting ? { "x-kotoleaf-meeting": meeting } : {} });
 }
 
 function validCloseCode(code: number): number {

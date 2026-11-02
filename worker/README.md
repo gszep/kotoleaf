@@ -19,6 +19,11 @@ Tokens are the `ACCESS_TOKENS` secret, as comma-separated `label:token` pairs. T
 recorded as the meeting source. The local copy is `~/.config/kotoleaf/access-tokens`
 (mode 600). Never paste tokens into chat or commit them.
 
+`OPENCODE_CHAT_TOKEN` is a separate optional secret for the chat bridge. It accepts
+only `POST /v1/audio/transcriptions`: it cannot access meetings, archives, MCP or
+streaming routes. Provision a newly generated value directly into the Worker
+secret and the bridge's private token file; do not extract another app's token.
+
 Storage: meetings stay in a SQLite Durable Object for `HOT_DAYS` (7). Every Sunday at 03:00 JST,
 older meetings are written to R2 as one gzipped JSON-lines file each (a metadata line,
 then the stored Deepgram messages) and removed from the Durable Object. Without an R2

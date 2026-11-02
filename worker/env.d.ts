@@ -6,6 +6,8 @@ declare module "*.txt" {
 interface Env {
 	DEEPGRAM_API_KEY: string;
 	ACCESS_TOKENS: string;
+	/** Dedicated, transcription-only credential for the chat bridge. */
+	OPENCODE_CHAT_TOKEN?: string;
 	HOT_DAYS?: string;
 	ARCHIVE?: R2Bucket;
 	DEEPGRAM_URL: string;

@@ -47,7 +47,7 @@ wss.on("connection", (socket, req) => {
 await new Promise((resolve) => mock.listen(MOCK_PORT, "127.0.0.1", resolve));
 
 const dir = mkdtempSync(join(tmpdir(), "kotoleaf-e2e-"));
-writeFileSync(".dev.vars", `DEEPGRAM_API_KEY=mock-deepgram-key\nACCESS_TOKENS=local:${TOKEN}\n`);
+writeFileSync(".dev.vars", `DEEPGRAM_API_KEY=mock-deepgram-key\nACCESS_TOKENS=local:${TOKEN}\nOPENCODE_CHAT_TOKEN=local-chat-only-token\n`, { flag: "wx", mode: 0o600 });
 const wrangler = spawn(
 	"npx",
 	["wrangler", "dev", "--port", String(WORKER_PORT), "--ip", "127.0.0.1", "--persist-to", dir, "--var", `DEEPGRAM_URL:http://127.0.0.1:${MOCK_PORT}/v1/listen`, "--var", "HOT_DAYS:0"],
@@ -70,6 +70,18 @@ try {
 
 	console.log("worker up");
 	assert.equal((await fetch(`${base}/meetings`)).status, 401, "unauthenticated request rejected");
+	const chatAuth = { Authorization: "Bearer local-chat-only-token" };
+	assert.equal((await fetch(`${base}/meetings`, { headers: chatAuth })).status, 401, "chat token cannot read meeting content");
+	assert.equal((await fetch(`${base}/v1/listen`, { method: "POST", headers: chatAuth, body: "blocked" })).status, 401, "chat token cannot use other speech routes");
+	assert.equal((await fetch(`${base}/archive/run`, { method: "POST", headers: chatAuth })).status, 401, "chat token cannot change retention");
+	const callsBeforeChat = seen.length;
+	assert.equal((await fetch(`${base}/v1/audio/transcriptions`, { method: "POST", headers: chatAuth, body: new FormData() })).status, 400, "chat token authenticates without sending audio upstream");
+	assert.equal(seen.length, callsBeforeChat);
+	const chatForm = new FormData();
+	chatForm.append("file", new Blob([new Uint8Array(64)], { type: "audio/ogg;codecs=opus" }), "voice.ogg");
+	const chatResult = await fetch(`${base}/v1/audio/transcriptions`, { method: "POST", headers: chatAuth, body: chatForm });
+	assert.equal(chatResult.status, 200);
+	assert.equal((await chatResult.json()).text, "今日は meeting");
 
 	// OpenAI-compatible dictation route.
 	const form = new FormData();

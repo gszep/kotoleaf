@@ -38,6 +38,12 @@ async function authenticate(request: Request, env: Env): Promise<string | null> 
 	if (!presented) return null;
 	const encoder = new TextEncoder();
 	const given = encoder.encode(presented);
+	if (env.OPENCODE_CHAT_TOKEN) {
+		const expected = encoder.encode(env.OPENCODE_CHAT_TOKEN.trim());
+		if (expected.byteLength === given.byteLength && (crypto.subtle as unknown as { timingSafeEqual(a: ArrayBufferView, b: ArrayBufferView): boolean }).timingSafeEqual(expected, given)) {
+			return request.method === "POST" && new URL(request.url).pathname === "/v1/audio/transcriptions" ? "opencode-chat" : null;
+		}
+	}
 	for (const pair of (env.ACCESS_TOKENS ?? "").split(",")) {
 		const index = pair.indexOf(":");
 		if (index < 1) continue;

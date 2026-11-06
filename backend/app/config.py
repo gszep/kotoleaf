@@ -26,25 +26,14 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expiry_hours: int = 24
 
-    # GCP / Firestore
-    gcp_project_id: str = ""
-    firestore_emulator_host: str = ""
+    # NOTE: Firestore connection (KOTOLEAF_GCP_PROJECT_ID / FIRESTORE_EMULATOR_HOST)
+    # is read directly from the environment in app/db/firestore.py, not via these
+    # settings. Summarization tuning lives in SummarizationConfig
+    # (app/models/session.py) — the live source used by the trigger. Do not
+    # re-add defaults for either here; nothing reads them.
 
     # CORS
     cors_origins: list[str] = ["http://localhost:5173"]
-
-    # Summarization defaults
-    summarization_utterance_threshold: int = 3
-    summarization_min_words: int = 5
-    summarization_min_duration_sec: float = 3.0
-    summarization_max_interval_sec: float = 45.0
-    summarization_cooldown_sec: float = 8.0
-
-    # Audio buffer
-    audio_buffer_duration_sec: int = 120
-
-    # Kanji assist
-    default_jlpt_threshold: str = "N1"
 
     environment: str = "development"
 

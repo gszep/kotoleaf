@@ -2,3 +2,5 @@ node_modules
 .dev.vars
 dist
 .wrangler
+.preview
+.verification

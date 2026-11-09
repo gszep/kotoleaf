@@ -4,6 +4,13 @@
 
 Built today: the Phase 1 pipeline in this repo — FastAPI backend (`Ear → Mind → Tongue`: Deepgram streaming ASR, Claude rolling bilingual summaries with clarification detection, fugashi/MeCab kanji assist), SvelteKit frontend (portrait-shared/solo + landscape), Google SSO, Firestore persistence, and the Star rating prompt. A Cloudflare Worker (`worker/`, see `worker/README.md`) now fronts Deepgram for dictation/live transcription and stores meeting transcripts.
 
+9 Nov 2026 bounded increment: the Worker's `/learn` page and `/learning` API persist
+user-confirmed spellings by existing access-token label, feed them into the next
+transcription as hints, and retain a simple review log with undo/provenance.
+Original transcripts remain untouched. This Worker-local loop is not yet the
+Firestore/FSRS teacher described below; the phone demo explicitly uses synthetic,
+browser-local data. See `worker/README.md` for scope and retention details.
+
 Not yet built (design targets below, not current code): FSRS flashcards and growth tracking (Phase 2), institutional glossary/materials ingestion and cultural briefings (Phase 3), Google Meet bot, LiveKit transport, and multi-participant scaling (Phase 4). "Tech Stack"/"Scaling" hosting notes describe the intended GCP setup; current deployment is local docker compose (`docker-compose.yml`) plus the Worker.
 
 ## Context

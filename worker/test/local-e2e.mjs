@@ -12,6 +12,7 @@ const MOCK_PORT = 18787;
 const WORKER_PORT = 18788;
 const TOKEN = "local-test-token";
 const seen = [];
+let failNextBatch = false;
 
 const words = [
 	{ word: "今日", start: 0.1, end: 0.4, speaker: 1, language: "ja" },
@@ -31,6 +32,7 @@ const mock = createServer((req, res) => {
 	seen.push({ url: req.url, auth: req.headers.authorization });
 	req.resume();
 	req.on("end", () => {
+		if (failNextBatch) { failNextBatch = false; res.writeHead(503); res.end("synthetic upstream unavailable"); return; }
 		res.writeHead(200, { "Content-Type": "application/json" });
 		res.end(JSON.stringify({ results: { channels: [{ alternatives: [{ transcript: "今日は meeting", words }] }] } }));
 	});
@@ -39,6 +41,7 @@ const wss = new WebSocketServer({ server: mock });
 wss.on("connection", (socket, req) => {
 	seen.push({ url: req.url, auth: req.headers.authorization, ws: true });
 	socket.on("message", (_data, isBinary) => {
+		if (!isBinary && String(_data) === "simulate-upstream-failure") { socket.close(1011, "synthetic upstream failure"); return; }
 		if (!isBinary) return;
 		socket.send(JSON.stringify(result(false, "今日", words.slice(0, 1))));
 		socket.send(JSON.stringify(result(true, "今日は meeting", words)));
@@ -47,19 +50,24 @@ wss.on("connection", (socket, req) => {
 await new Promise((resolve) => mock.listen(MOCK_PORT, "127.0.0.1", resolve));
 
 const dir = mkdtempSync(join(tmpdir(), "kotoleaf-e2e-"));
-writeFileSync(".dev.vars", `DEEPGRAM_API_KEY=mock-deepgram-key\nACCESS_TOKENS=local:${TOKEN}\nOPENCODE_CHAT_TOKEN=local-chat-only-token\n`, { flag: "wx", mode: 0o600 });
-const wrangler = spawn(
-	"npx",
-	["wrangler", "dev", "--port", String(WORKER_PORT), "--ip", "127.0.0.1", "--persist-to", dir, "--var", `DEEPGRAM_URL:http://127.0.0.1:${MOCK_PORT}/v1/listen`, "--var", "HOT_DAYS:0"],
-	{ stdio: ["ignore", "pipe", "pipe"] },
-);
+writeFileSync(".dev.vars", `DEEPGRAM_API_KEY=mock-deepgram-key\nACCESS_TOKENS=local:${TOKEN},other:local-other-token\nOPENCODE_CHAT_TOKEN=local-chat-only-token\n`, { flag: "wx", mode: 0o600 });
 let log = "";
-wrangler.stdout.on("data", (d) => (log += d));
-wrangler.stderr.on("data", (d) => (log += d));
+function startWorker() {
+	const child = spawn(process.execPath,
+		["node_modules/wrangler/bin/wrangler.js", "dev", "--port", String(WORKER_PORT), "--ip", "127.0.0.1", "--persist-to", dir, "--var", `DEEPGRAM_URL:http://127.0.0.1:${MOCK_PORT}/v1/listen`, "--var", "HOT_DAYS:0"],
+		{ stdio: ["ignore", "pipe", "pipe"] });
+	child.stdout.on("data", (d) => (log += d)); child.stderr.on("data", (d) => (log += d));
+	return child;
+}
+let wrangler = startWorker();
+async function stopWorker() {
+	if (wrangler.exitCode !== null) return;
+	await new Promise(resolve => { wrangler.once("exit", resolve); wrangler.kill("SIGTERM"); });
+}
 
 const base = `http://127.0.0.1:${WORKER_PORT}`;
 const auth = { Authorization: `Bearer ${TOKEN}` };
-try {
+async function ready() {
 	for (let i = 0; ; i++) {
 		try {
 			if ((await fetch(`${base}/health`)).ok) break;
@@ -67,8 +75,40 @@ try {
 		if (i > 120) throw new Error(`wrangler dev did not start:\n${log}`);
 		await new Promise((r) => setTimeout(r, 500));
 	}
+}
+try {
+	await ready();
 
 	console.log("worker up");
+	assert.equal((await fetch(`${base}/learn?demo=1`)).status, 200);
+	assert.match(await (await fetch(`${base}/learn.js`)).text(), /synthetic-learning-v1/);
+	assert.equal((await fetch(`${base}/learning`)).status, 401);
+	const learn = async (path = "", method = "GET", body, headers = auth) => fetch(`${base}/learning${path}`, { method, headers: { ...headers, "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+	const correction = { id: crypto.randomUUID(), original: "光洋ラボ", term: "紅葉ラボ", reading: "こうようラボ", meaning: "Koyo Lab — fictional", confirmed: true };
+	assert.equal((await learn("", "POST", { ...correction, confirmed: false })).status, 400);
+	assert.equal((await learn("", "POST", correction)).status, 201);
+	assert.equal((await learn("", "POST", correction)).status, 200, "lost-response retry is idempotent");
+	assert.equal((await learn("", "POST", { ...correction, term: "other" })).status, 409, "id cannot be reused for a different correction");
+	assert.equal((await learn("", "POST", { ...correction, id: crypto.randomUUID() })).status, 409, "duplicate active spelling rejected");
+	const otherAuth = { Authorization: "Bearer local-other-token" };
+	assert.deepEqual((await (await learn("", "GET", undefined, otherAuth)).json()).corrections, [], "learning is isolated by token label");
+	assert.equal((await learn("/" + correction.id, "PATCH", { active: false }, otherAuth)).status, 404);
+	assert.equal((await learn("", "GET", undefined, { Authorization: "Bearer local-chat-only-token" })).status, 401, "chat token cannot read learning");
+	assert.equal((await learn("", "POST", correction, { Authorization: "Bearer local-chat-only-token" })).status, 401, "chat token cannot write learning");
+	assert.equal((await fetch(`${base}/learning`, { method: "POST", headers: auth, body: "{" })).status, 400);
+	assert.equal((await learn("", "POST", { ...correction, meaning: "x".repeat(5000) })).status, 413);
+	const review = { id: crypto.randomUUID(), rating: "again" };
+	assert.equal((await learn(`/${correction.id}/reviews`, "POST", review)).status, 201);
+	assert.equal((await learn(`/${correction.id}/reviews`, "POST", review)).status, 200);
+	assert.equal((await learn(`/${correction.id}/reviews`, "POST", { ...review, rating: "known" })).status, 409);
+	// Kill the actual local runtime, then reopen the same SQLite persistence.
+	await stopWorker(); wrangler = startWorker(); await ready();
+	const restored = await (await learn()).json();
+	assert.equal(restored.corrections.length, 1);
+	assert.equal(restored.corrections[0].original, correction.original);
+	assert.equal(restored.corrections[0].reviews, 1, "review survives restart without duplicate retry");
+	assert.equal(restored.corrections[0].last_rating, "again");
+	assert.deepEqual(restored.keyterms, [correction.term]);
 	assert.equal((await fetch(`${base}/meetings`)).status, 401, "unauthenticated request rejected");
 	const chatAuth = { Authorization: "Bearer local-chat-only-token" };
 	assert.equal((await fetch(`${base}/meetings`, { headers: chatAuth })).status, 401, "chat token cannot read meeting content");
@@ -82,6 +122,7 @@ try {
 	const chatResult = await fetch(`${base}/v1/audio/transcriptions`, { method: "POST", headers: chatAuth, body: chatForm });
 	assert.equal(chatResult.status, 200);
 	assert.equal((await chatResult.json()).text, "今日は meeting");
+	assert.ok(!new URL(seen.at(-1).url, "http://x").searchParams.getAll("keyterm").includes(correction.term), "chat transcription does not inherit another label's names");
 
 	// OpenAI-compatible dictation route.
 	const form = new FormData();
@@ -96,6 +137,8 @@ try {
 	assert.equal(dictation.get("language"), "multi");
 	assert.deepEqual(dictation.getAll("language_hint"), ["en", "ja"]);
 	assert.ok(dictation.getAll("keyterm").includes("Kotoleaf"));
+	assert.ok(dictation.getAll("keyterm").includes(correction.term), "saved correction reapplied after runtime restart");
+	assert.equal(dictation.get("redact_usage"), "true");
 	assert.equal(seen.at(-1).auth, "Token mock-deepgram-key", "worker substitutes the Deepgram key");
 
 	// Deepgram-compatible pre-recorded route.
@@ -109,6 +152,10 @@ try {
 	assert.equal(batchQuery.get("language"), "multi");
 	assert.equal(batchQuery.has("detect_language"), false);
 	assert.equal(batchQuery.get("diarize"), "true");
+	assert.ok(batchQuery.getAll("keyterm").includes(correction.term));
+	failNextBatch = true;
+	assert.equal((await fetch(`${base}/v1/listen`, { method: "POST", headers: auth, body: "synthetic" })).status, 503);
+	assert.deepEqual((await (await learn()).json()).keyterms, [correction.term], "upstream failure never loses saved learning");
 
 	console.log("http routes ok");
 	// Deepgram-compatible live route: relay plus storage of non-interim messages.
@@ -133,6 +180,7 @@ try {
 	const liveQuery = new URL(seen.find((s) => s.ws).url, "http://x").searchParams;
 	assert.equal(liveQuery.get("endpointing"), "100");
 	assert.equal(liveQuery.get("channels"), "2");
+	assert.ok(liveQuery.getAll("keyterm").includes(correction.term));
 
 	const transcript = await (await fetch(`${base}/meetings/latest/transcript`, { headers: auth })).text();
 	assert.match(transcript, /\[00:00\] ch0 S1 en\+ja: 今日は meeting/);
@@ -159,6 +207,30 @@ try {
 	assert.equal(transientHeader, undefined);
 	assert.equal(new URL(seen.filter((s) => s.ws).at(-1).url, "http://x").searchParams.has("store"), false);
 	assert.equal((await (await fetch(`${base}/meetings`, { headers: auth })).json()).length, before, "store=false creates no meeting");
+	assert.ok(new URL(seen.filter(s => s.ws).at(-1).url, "http://x").searchParams.getAll("keyterm").includes(correction.term), "reconnected transient stream loads confirmed hints");
+	const failedSocket = new WebSocket(`ws://127.0.0.1:${WORKER_PORT}/v1/listen?store=false`, { headers: auth });
+	await new Promise((resolve, reject) => {
+		failedSocket.on("open", () => failedSocket.send("simulate-upstream-failure"));
+		failedSocket.on("close", code => { try { assert.equal(code, 1011); resolve(); } catch (e) { reject(e); } });
+		failedSocket.on("error", reject);
+	});
+	assert.deepEqual((await (await learn()).json()).keyterms, [correction.term]);
+	assert.equal((await learn(`/${correction.id}/reviews`, "POST", { id: crypto.randomUUID(), rating: "known" })).status, 201);
+	assert.equal((await learn(`/${correction.id}`, "PATCH", { active: false })).status, 200);
+	assert.equal((await learn(`/${correction.id}`, "PATCH", { active: false })).status, 200, "undo retries are safe");
+	// A delayed retry of the original save must never resurrect a retracted hint.
+	assert.equal((await learn("", "POST", correction)).status, 200);
+	assert.deepEqual((await (await learn()).json()).keyterms, []);
+	assert.equal((await learn(`/${correction.id}/reviews`, "POST", { id: crypto.randomUUID(), rating: "known" })).status, 404);
+	await fetch(`${base}/v1/listen`, { method: "POST", headers: auth, body: "synthetic" });
+	assert.ok(!new URL(seen.at(-1).url, "http://x").searchParams.getAll("keyterm").includes(correction.term), "undo removes next-request hint");
+	const reconnected = new WebSocket(`ws://127.0.0.1:${WORKER_PORT}/v1/listen?store=false`, { headers: auth });
+	await new Promise((resolve, reject) => {
+		reconnected.on("open", () => reconnected.send("simulate-upstream-failure"));
+		reconnected.on("close", resolve); reconnected.on("error", reject);
+	});
+	assert.ok(!new URL(seen.filter(s => s.ws).at(-1).url, "http://x").searchParams.getAll("keyterm").includes(correction.term), "reconnect after failure loads undo, not stale hints");
+	assert.equal(await (await fetch(`${base}/meetings/latest/raw`, { headers: auth })).text(), raw, "confirmation, review and undo never replace raw transcripts");
 
 	// MCP over stateless HTTP.
 	const rpc = async (method, params) =>
@@ -179,10 +251,23 @@ try {
 	assert.equal(lines[0].meeting.id, run.archived[0]);
 	assert.equal(lines[1].message.is_final, true);
 	assert.deepEqual(await (await fetch(`${base}/meetings`, { headers: auth })).json(), [], "archived meetings leave hot storage");
+	await stopWorker(); wrangler = startWorker(); await ready();
+	const undone = (await (await learn()).json()).corrections[0];
+	assert.equal(undone.active, 0, "undo survives runtime restart and archive");
+	assert.equal(undone.reviews, 2);
+	assert.equal(undone.last_rating, "known");
+	assert.ok(undone.retracted >= undone.created);
+	if (process.env.KOTOLEAF_BROWSER_PYTHON) {
+		await new Promise((resolve, reject) => {
+			const browser = spawn(process.env.KOTOLEAF_BROWSER_PYTHON, ["test/browser-learning.py", `${base}/learn`], { stdio: "inherit" });
+			browser.on("error", reject);
+			browser.on("exit", code => code === 0 ? resolve() : reject(new Error(`mobile browser test exited ${code}`)));
+		});
+	}
 
 	console.log("local e2e: all checks passed");
 } finally {
-	wrangler.kill("SIGTERM");
+	await stopWorker();
 	mock.close();
 	wss.close();
 	rmSync(dir, { recursive: true, force: true });

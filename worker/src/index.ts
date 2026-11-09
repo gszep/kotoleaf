@@ -1,6 +1,9 @@
 import glossaryText from "../glossary.txt";
 import { deepgramQuery, dominantLanguage, parseGlossary } from "./params";
 import type { Line, Meeting } from "./store";
+import { correctionInput, LearningError, uuid } from "./learning";
+import learningPage from "./learning.html";
+import learningScript from "./learning-browser.txt";
 
 export { Transcripts } from "./store";
 
@@ -10,21 +13,33 @@ export default {
 	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 		const url = new URL(request.url);
 		if (url.pathname === "/health") return Response.json({ ok: true });
+		// Public shell/demo contains no user data. Private data still requires the
+		// existing access token, supplied in a header, never in URLs or storage.
+		if (request.method === "GET" && ["/learn", "/learn.js"].includes(url.pathname)) {
+			return new Response(url.pathname === "/learn" ? learningPage : learningScript, { headers: {
+				"Content-Type": url.pathname === "/learn" ? "text/html; charset=utf-8" : "text/javascript; charset=utf-8",
+				"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer",
+				"Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+				"Permissions-Policy": "microphone=(), camera=()",
+			} });
+		}
 
 		const label = await authenticate(request, env);
 		if (!label) return Response.json({ error: "unauthorized" }, { status: 401 });
 
 		try {
-			if (url.pathname.endsWith("/audio/transcriptions") && request.method === "POST") return await openaiTranscription(request, env);
+			if (url.pathname === "/learning" || url.pathname.startsWith("/learning/")) return await learning(request, url, env, label);
+			if (url.pathname.endsWith("/audio/transcriptions") && request.method === "POST") return await openaiTranscription(request, env, label);
 			if (url.pathname === "/v1/listen") {
 				if (request.headers.get("Upgrade")?.toLowerCase() === "websocket") return await live(request, env, ctx, label);
-				if (request.method === "POST") return await batch(request, env);
+				if (request.method === "POST") return await batch(request, env, label);
 			}
 			if (url.pathname === "/mcp") return await mcp(request, env);
 			if (url.pathname.startsWith("/meetings")) return await meetings(url, env);
 			if (url.pathname.startsWith("/archive")) return await archive(request, url, env);
 			return Response.json({ error: "not found" }, { status: 404 });
 		} catch (error) {
+			if (error instanceof LearningError) return Response.json({ error: error.message }, { status: error.status, headers: { "Cache-Control": "no-store" } });
 			return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 502 });
 		}
 	},
@@ -59,17 +74,62 @@ function store(env: Env) {
 	return env.TRANSCRIPTS.get(env.TRANSCRIPTS.idFromName("main"));
 }
 
+async function learning(request: Request, url: URL, env: Env, label: string): Promise<Response> {
+	const db = store(env);
+	const reply = (data: unknown, status = 200) => Response.json(data, { status, headers: { "Cache-Control": "no-store" } });
+	const parts = url.pathname.split("/").filter(Boolean);
+	if (parts.length === 1 && request.method === "GET") return reply({ scope: label, corrections: await db.corrections(label), keyterms: await db.learningTerms(label) });
+	if (!["POST", "PATCH"].includes(request.method)) return reply({ error: "method not allowed" }, 405);
+	// Bound body size before parsing, even if Content-Length is absent/incorrect.
+	const reader = request.body?.getReader();
+	let body = "";
+	if (reader) {
+		const decoder = new TextDecoder();
+		let size = 0;
+		while (true) {
+			const { value, done } = await reader.read();
+			if (done) break;
+			size += value.byteLength;
+			if (size > 4096) { await reader.cancel(); throw new LearningError("Request too large.", 413); }
+			body += decoder.decode(value, { stream: true });
+		}
+		body += decoder.decode();
+	}
+	let input: any;
+	try { input = JSON.parse(body); } catch { throw new LearningError("Invalid JSON."); }
+	if (parts.length === 1 && request.method === "POST") {
+		const result = await db.confirmCorrection(label, correctionInput(input));
+		return reply(result, result.status);
+	}
+	if (parts.length === 2 && request.method === "PATCH" && input?.active === false) {
+		const found = await db.undoCorrection(label, uuid(parts[1]));
+		return reply(found ? { ok: true } : { error: "Correction not found." }, found ? 200 : 404);
+	}
+	if (parts.length === 3 && parts[2] === "reviews" && request.method === "POST") {
+		if (!["again", "known"].includes(input?.rating)) throw new LearningError("Choose again or known.");
+		const result = await db.reviewCorrection(label, uuid(parts[1]), uuid(input.id), input.rating);
+		return reply(result, result.status);
+	}
+	return reply({ error: "not found" }, 404);
+}
+
+async function scopedGlossary(env: Env, label: string): Promise<string[]> {
+	// Fail visibly before opening upstream if learning storage is unavailable.
+	// A reconnect/new request takes a fresh snapshot; no mid-stream rewriting.
+	return [...await store(env).learningTerms(label), ...glossary];
+}
+
 function deepgramHeaders(env: Env, contentType?: string | null): HeadersInit {
 	return { Authorization: `Token ${env.DEEPGRAM_API_KEY}`, ...(contentType ? { "Content-Type": contentType } : {}) };
 }
 
 // OpenAI-compatible route for Paseo dictation (`OPENAI_STT_BASE_URL=<origin>/v1`).
 // The requested model and language are ignored in favour of EN/JA code-switching.
-async function openaiTranscription(request: Request, env: Env): Promise<Response> {
+async function openaiTranscription(request: Request, env: Env, label: string): Promise<Response> {
 	const form = await request.formData();
 	const file = form.get("file");
 	if (!file || typeof file === "string") return Response.json({ error: { message: "missing file" } }, { status: 400 });
-	const query = deepgramQuery(new URLSearchParams(), glossary, "batch");
+	const query = deepgramQuery(new URLSearchParams(), await scopedGlossary(env, label), "batch");
 	const response = await fetch(`${env.DEEPGRAM_URL}?${query}`, {
 		method: "POST",
 		headers: deepgramHeaders(env, file.type || "audio/wav"),
@@ -86,8 +146,8 @@ async function openaiTranscription(request: Request, env: Env): Promise<Response
 
 // Deepgram-compatible pre-recorded route (Anarlog after-recording). The body is
 // streamed through unchanged; only the query is rewritten. Results are not stored.
-async function batch(request: Request, env: Env): Promise<Response> {
-	const query = deepgramQuery(new URL(request.url).searchParams, glossary, "batch");
+async function batch(request: Request, env: Env, label: string): Promise<Response> {
+	const query = deepgramQuery(new URL(request.url).searchParams, await scopedGlossary(env, label), "batch");
 	const response = await fetch(`${env.DEEPGRAM_URL}?${query}`, {
 		method: "POST",
 		headers: deepgramHeaders(env, request.headers.get("Content-Type")),
@@ -99,7 +159,7 @@ async function batch(request: Request, env: Env): Promise<Response> {
 // Deepgram-compatible streaming route (Anarlog live). Audio frames pass through;
 // every non-interim message from Deepgram is also stored verbatim for agents.
 async function live(request: Request, env: Env, ctx: ExecutionContext, label: string): Promise<Response> {
-	const query = deepgramQuery(new URL(request.url).searchParams, glossary, "live");
+	const query = deepgramQuery(new URL(request.url).searchParams, await scopedGlossary(env, label), "live");
 	const upstreamResponse = await fetch(`${env.DEEPGRAM_URL}?${query}`, { headers: { Upgrade: "websocket", ...deepgramHeaders(env) } });
 	const upstream = upstreamResponse.webSocket;
 	if (!upstream) return new Response(await upstreamResponse.text(), { status: upstreamResponse.status || 502 });

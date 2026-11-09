@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { dominantLanguage } from "./params";
 import { archiveCutoff, nextArchiveTime } from "./schedule";
+import { checkCapacity, type Correction, type CorrectionInput } from "./learning";
 
 // One SQLite-backed Durable Object instance ("main") holds every meeting.
 // Each non-interim Deepgram message is stored verbatim in `raw`; the other
@@ -40,10 +41,63 @@ export class Transcripts extends DurableObject<Env> {
 				language TEXT, text TEXT, raw TEXT NOT NULL,
 				PRIMARY KEY (meeting_id, seq)
 			);
+			CREATE TABLE IF NOT EXISTS corrections (
+				owner TEXT NOT NULL, id TEXT NOT NULL, original TEXT NOT NULL, term TEXT NOT NULL,
+				reading TEXT NOT NULL, meaning TEXT NOT NULL, created INTEGER NOT NULL,
+				active INTEGER NOT NULL DEFAULT 1, retracted INTEGER,
+				PRIMARY KEY (owner, id)
+			);
+			CREATE TABLE IF NOT EXISTS correction_reviews (
+				owner TEXT NOT NULL, id TEXT NOT NULL, correction_id TEXT NOT NULL,
+				rating TEXT NOT NULL, created INTEGER NOT NULL,
+				PRIMARY KEY (owner, id)
+			);
+			CREATE INDEX IF NOT EXISTS reviews_by_correction ON correction_reviews (owner, correction_id, created);
 		`);
 		// Added after v1: comma-delimited set of word languages, e.g. ",en,ja,".
 		const columns = this.sql.exec("PRAGMA table_info(messages)").toArray().map((c) => c.name);
 		if (!columns.includes("languages")) this.sql.exec("ALTER TABLE messages ADD COLUMN languages TEXT");
+	}
+
+	corrections(owner: string): Correction[] {
+		return this.sql.exec(`SELECT c.id, c.original, c.term, c.reading, c.meaning, c.created, c.active, c.retracted,
+			(SELECT COUNT(*) FROM correction_reviews r WHERE r.owner = c.owner AND r.correction_id = c.id) AS reviews,
+			(SELECT rating FROM correction_reviews r WHERE r.owner = c.owner AND r.correction_id = c.id ORDER BY created DESC, rowid DESC LIMIT 1) AS last_rating,
+			(SELECT MAX(created) FROM correction_reviews r WHERE r.owner = c.owner AND r.correction_id = c.id) AS last_review
+			FROM corrections c WHERE c.owner = ? ORDER BY c.created DESC, c.rowid DESC`, owner).toArray() as unknown as Correction[];
+	}
+
+	learningTerms(owner: string): string[] {
+		return this.sql.exec("SELECT term FROM corrections WHERE owner = ? AND active = 1 ORDER BY created DESC, rowid DESC", owner).toArray().map((r) => r.term as string);
+	}
+
+	// Synchronous SQL operations do not yield: limit checks and writes are atomic
+	// with respect to other requests in this Durable Object. IDs make retries safe.
+	confirmCorrection(owner: string, input: CorrectionInput): { status: number; error?: string } {
+		const all = this.corrections(owner);
+		const existing = all.find((c) => c.id === input.id);
+		if (existing) {
+			return Object.entries(input).every(([k, v]) => existing[k as keyof CorrectionInput] === v)
+				? { status: 200 } : { status: 409, error: "Request id already used for different content." };
+		}
+		try { checkCapacity(all.filter((c) => c.active), input); }
+		catch (error) { return { status: 409, error: (error as Error).message }; }
+		this.sql.exec("INSERT INTO corrections (owner, id, original, term, reading, meaning, created) VALUES (?, ?, ?, ?, ?, ?, ?)", owner, input.id, input.original, input.term, input.reading, input.meaning, Date.now());
+		return { status: 201 };
+	}
+
+	undoCorrection(owner: string, id: string): boolean {
+		const exists = this.sql.exec("SELECT id FROM corrections WHERE owner = ? AND id = ?", owner, id).toArray().length > 0;
+		if (exists) this.sql.exec("UPDATE corrections SET active = 0, retracted = COALESCE(retracted, ?) WHERE owner = ? AND id = ?", Date.now(), owner, id);
+		return exists;
+	}
+
+	reviewCorrection(owner: string, id: string, event: string, rating: string): { status: number; error?: string } {
+		const previous = this.sql.exec("SELECT correction_id, rating FROM correction_reviews WHERE owner = ? AND id = ?", owner, event).toArray()[0];
+		if (previous) return previous.correction_id === id && previous.rating === rating ? { status: 200 } : { status: 409, error: "Review id already used." };
+		if (!this.sql.exec("SELECT id FROM corrections WHERE owner = ? AND id = ? AND active = 1", owner, id).toArray().length) return { status: 404, error: "Active correction not found." };
+		this.sql.exec("INSERT INTO correction_reviews (owner, id, correction_id, rating, created) VALUES (?, ?, ?, ?, ?)", owner, event, id, rating, Date.now());
+		return { status: 201 };
 	}
 
 	async start(source: string): Promise<string> {

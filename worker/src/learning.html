@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Kotoleaf · Words that take root</title>
+  <style>
+    :root{font-family:system-ui,sans-serif;color:#173a30;background:#f5f4ed;color-scheme:light}*{box-sizing:border-box}body{margin:0}main{max-width:680px;margin:auto;padding:24px 18px 64px}h1{font-size:2rem;line-height:1.15;margin:12px 0}h2{font-size:1.25rem}p{line-height:1.55}.eyebrow{letter-spacing:.12em;text-transform:uppercase;font-size:.75rem;font-weight:700}.muted,small{color:#4c6259}.panel,article{background:#fffef9;border:1px solid #ccd8c8;border-radius:18px;padding:20px;margin:16px 0}.badge{display:inline-block;background:#e3eddb;border-radius:99px;padding:6px 12px;font-size:.8rem}label{display:block;margin:14px 0 6px}input{width:100%;padding:12px;border:1px solid #91a394;border-radius:9px;font:inherit;background:white;color:#173a30}input[type=checkbox]{width:auto;margin-right:8px}button,a.button{display:inline-block;min-height:44px;padding:12px 16px;background:#245e48;color:white;border:0;border-radius:9px;font:inherit;cursor:pointer;text-decoration:none;margin:6px 6px 6px 0}button.secondary{background:#edf1e7;color:#173a30}button:disabled{opacity:.5;cursor:wait}button:focus-visible,a:focus-visible,input:focus-visible{outline:3px solid #b78727;outline-offset:3px}fieldset{border:0;padding:0;margin:0}#status{white-space:pre-wrap;overflow-wrap:anywhere;min-height:28px}#status.error{color:#a52722}#hints{overflow-wrap:anywhere}.term{font-size:1.65rem;margin:4px 0;overflow-wrap:anywhere}.detail{white-space:pre-wrap;overflow-wrap:anywhere}details{margin-top:14px}summary{cursor:pointer;padding:8px 0}footer{font-size:.85rem;margin-top:24px}.actions{display:flex;flex-wrap:wrap}#history article{opacity:.8}[hidden]{display:none!important}
+  </style>
+</head>
+<body><main>
+  <div class="eyebrow">Kotoleaf · 言リーフ</div>
+  <h1>Words that take root.</h1>
+  <p>Confirm a name or term once. Carry its spelling into your next transcription, then practise it here.</p>
+  <span class="badge" id="mode">Private learning</span>
+  <p id="explanation" class="muted"></p>
+  <section class="panel" id="connect-panel">
+    <h2>Open your learning space</h2>
+    <p>Use your existing Kotoleaf access token. Terms are shared by apps using the same token label—not a separate personal account. Chat-only tokens cannot open this space.</p>
+    <form id="connect-form"><label for="token">Access token</label><input id="token" type="password" autocomplete="off" required><button>Connect</button></form>
+    <small>The token stays in this tab's memory only. Reloading signs you out.</small>
+    <p><a href="/learn?demo=1">Try the synthetic demo instead →</a></p>
+  </section>
+  <p id="status" role="status" aria-live="polite"></p>
+  <div id="workspace" hidden>
+    <div class="actions"><button id="refresh" class="secondary">Reload saved learning</button><button id="disconnect" class="secondary">Disconnect</button></div>
+    <section class="panel">
+      <h2>1 · Confirm a spelling</h2>
+      <p>No guesses are accepted automatically. Save only a name or term you have checked. Do not paste a conversation.</p>
+      <button id="example" class="secondary">Fill a synthetic example</button>
+      <form id="correction-form"><fieldset id="correction-fields">
+        <label for="original">Recognised spelling (optional)</label><input id="original" maxlength="100" placeholder="光洋ラボ">
+        <label for="term">Confirmed spelling</label><input id="term" maxlength="48" required placeholder="紅葉ラボ">
+        <label for="reading">Reading (optional)</label><input id="reading" maxlength="100" placeholder="こうようラボ">
+        <label for="meaning">Meaning / study note (optional)</label><input id="meaning" maxlength="200" placeholder="Koyo Lab — a fictional project">
+        <label><input id="confirmed" type="checkbox" required>I have checked this spelling. Save it for review and send it as a hint to Deepgram on future requests using this token label.</label>
+        <button>Confirm and remember</button>
+      </fieldset></form>
+      <small>Original transcripts and audio are never rewritten. Reading, meaning and recognised spelling stay here; only the confirmed spelling becomes a hint. Undo stops future hints but keeps this confirmation's history. Even transient streams can use saved hints. Existing open streams keep their starting hints until reconnect.</small>
+    </section>
+    <section class="panel"><h2>2 · Next transcription</h2><p id="hints"></p><small>Hints guide recognition, not guaranteed replacements. The institutional glossary also stays in place. No audio is recorded or sent from this page.</small></section>
+    <section><h2>3 · Practise your words</h2><p class="muted">Recall the reading or meaning, then reveal. “Again” and “Known” record your judgement; this is a simple review log, not spaced repetition yet. Both keep the speech hint active.</p><div id="cards"></div></section>
+    <details><summary>Confirmation history · undone terms</summary><div id="history"></div></details>
+  </div>
+  <footer>Small, explicit learning. No microphone, no model calls, no automatic name corrections.</footer>
+</main><script src="/learn.js" defer></script></body>
+</html>

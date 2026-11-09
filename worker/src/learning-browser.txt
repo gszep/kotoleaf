@@ -1,0 +1,113 @@
+"use strict";
+const $ = (id) => document.getElementById(id);
+const demo = new URL(location.href).searchParams.get("demo") === "1";
+const demoKey = "kotoleaf-synthetic-learning-v1";
+let token = "", pendingSave = null;
+const pendingReviews = new Map();
+function status(text, error = false) { $("status").textContent = text; $("status").className = error ? "error" : ""; }
+async function run(task) {
+  const controls = [...document.querySelectorAll("button, input")].map(element => ({ element, disabled: element.disabled }));
+  controls.forEach(({ element }) => element.disabled = true);
+  try { await task(); }
+  catch (e) { status(e.message + " Your form is kept. If a save was interrupted, retry unchanged; it will not duplicate the entry.", true); }
+  finally { controls.forEach(({ element, disabled }) => element.disabled = disabled); }
+}
+async function api(path = "", method = "GET", body) {
+  if (demo) return demoApi(path, method, body);
+  const response = await fetch("/learning" + path, { method, headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined, cache: "no-store", signal: AbortSignal.timeout(10000) });
+  const data = await response.json();
+  if (!response.ok) throw new Error(response.status === 401 ? "Not connected. Check the access token." : (data.error || "Learning service unavailable."));
+  return data;
+}
+// An explicitly local synthetic demonstration. It never calls private APIs or ASR.
+// Production persistence and isolation are covered separately by the local E2E test.
+function demoApi(path, method, body) {
+  let entries = JSON.parse(localStorage.getItem(demoKey) || "[]");
+  if (!Array.isArray(entries)) throw new Error("Demo storage is invalid.");
+  if (method === "GET") return { scope: "synthetic browser demo", corrections: entries, keyterms: entries.filter(c => c.active).map(c => c.term) };
+  if (!path && method === "POST") {
+    const active = entries.filter(c => c.active);
+    if (!body.confirmed || !body.term.trim() || new TextEncoder().encode(body.term).length > 48) throw new Error("Confirm a spelling of up to 48 UTF-8 bytes.");
+    if (!entries.some(c => c.id === body.id)) {
+      if (active.some(c => c.term === body.term)) throw new Error("This spelling is already active.");
+      if (active.length >= 16 || new TextEncoder().encode(active.map(c => c.term).join("") + body.term).length > 240) throw new Error("Personal hint budget reached.");
+      entries.unshift({ ...body, created: Date.now(), active: 1, retracted: null, reviews: 0, last_rating: null, last_review: null, review_ids: [] });
+    }
+  } else {
+    const [, id, action] = path.split("/");
+    const entry = entries.find(c => c.id === id);
+    if (!entry) throw new Error("Correction not found.");
+    if (method === "PATCH") { entry.active = 0; entry.retracted ||= Date.now(); }
+    else if (action === "reviews" && !entry.review_ids.includes(body.id)) {
+      if (!entry.active) throw new Error("Active correction not found.");
+      entry.review_ids.push(body.id); entry.reviews++; entry.last_rating = body.rating; entry.last_review = Date.now();
+    }
+  }
+  localStorage.setItem(demoKey, JSON.stringify(entries));
+  return { ok: true };
+}
+function node(tag, text, className) {
+  const n = document.createElement(tag); n.textContent = text;
+  if (className) n.className = className;
+  return n;
+}
+function button(text, action) {
+  const b = node("button", text, "secondary"); b.type = "button"; b.addEventListener("click", () => run(action)); return b;
+}
+async function refresh() {
+  const data = await api();
+  $("mode").textContent = demo ? "Synthetic demo · this browser only" : "Connected · " + data.scope;
+  $("workspace").hidden = false;
+  $("connect-panel").hidden = true;
+  $("hints").textContent = data.keyterms.length ? "Confirmed hints: " + data.keyterms.join(" · ") : "No personal hints. Confirm a term above to start.";
+  $("cards").replaceChildren(); $("history").replaceChildren();
+  for (const c of data.corrections) {
+    const card = document.createElement("article");
+    card.append(node("h3", c.term, "term"));
+    card.append(node("p", "User confirmed · " + new Date(c.created).toLocaleString(), "muted"));
+    if (c.original) card.append(node("p", "Recognised spelling: " + c.original, "detail"));
+    if (!c.active) {
+      card.append(node("p", "Undone · " + new Date(c.retracted).toLocaleString() + ". No longer a hint or review card."));
+      $("history").append(card); continue;
+    }
+    const answer = node("p", [c.reading || "No reading added", c.meaning || "No meaning added"].join("\n"), "detail"); answer.hidden = true;
+    const reveal = button("Reveal reading / meaning", async () => { answer.hidden = !answer.hidden; reveal.textContent = answer.hidden ? "Reveal reading / meaning" : "Hide answer"; });
+    card.append(reveal, answer);
+    card.append(node("p", c.reviews + " review(s)" + (c.last_rating ? " · Last: " + c.last_rating + " · " + new Date(c.last_review).toLocaleString() : ""), "muted"));
+    const actions = node("div", "", "actions");
+    for (const [rating, label] of [["again", "Again"], ["known", "Known"]]) {
+      actions.append(button(label, async () => {
+        const key = c.id + rating;
+        const id = pendingReviews.get(key) || crypto.randomUUID(); pendingReviews.set(key, id);
+        await api("/" + c.id + "/reviews", "POST", { id, rating });
+        await refresh(); pendingReviews.delete(key); status("Review saved.");
+      }));
+    }
+    actions.append(button("Undo confirmation", async () => { await api("/" + c.id, "PATCH", { active: false }); await refresh(); status("Confirmation undone. New requests will no longer use this personal hint."); }));
+    card.append(actions); $("cards").append(card);
+  }
+  if (!data.corrections.some(c => c.active)) $("cards").append(node("p", "Your confirmed words will appear here.", "muted"));
+}
+$("connect-form").addEventListener("submit", (event) => {
+  event.preventDefault(); token = $("token").value.trim();
+  run(async () => { await refresh(); $("token").value = ""; status("Connected. Saved learning loaded."); });
+});
+$("correction-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const fields = Object.fromEntries(["original", "term", "reading", "meaning"].map(key => [key, $(key).value.trim().normalize("NFC")]));
+  const fingerprint = JSON.stringify(fields);
+  if (!pendingSave || pendingSave.fingerprint !== fingerprint) pendingSave = { fingerprint, id: crypto.randomUUID() };
+  const payload = { ...fields, id: pendingSave.id, confirmed: $("confirmed").checked };
+  run(async () => {
+    await api("", "POST", payload); await refresh();
+    pendingSave = null; $("correction-form").reset(); status("Confirmation saved. The next transcription request will include this spelling as a hint.");
+  });
+});
+$("refresh").addEventListener("click", () => run(async () => { await refresh(); status("Saved learning reloaded."); }));
+$("disconnect").addEventListener("click", () => { token = ""; location.href = "/learn"; });
+$("example").addEventListener("click", () => {
+  $("original").value = "光洋ラボ"; $("term").value = "紅葉ラボ"; $("reading").value = "こうようラボ"; $("meaning").value = "Koyo Lab — a fictional project"; $("confirmed").checked = false;
+  status("Synthetic example filled. Check the spelling and explicitly confirm to save.");
+});
+$("explanation").textContent = demo ? "This demo keeps only the examples you enter in this browser. It never connects to meetings, private learning or Deepgram. Reload to check retention; undo to remove the hint. Use synthetic terms only." : "Confirmations and review history are retained in Kotoleaf's learning store. Undo disables reuse; it is not deletion. Use the same token label as your transcription app to carry spellings forward.";
+if (demo) run(async () => { await refresh(); status("Ready. Fill a synthetic example to try the loop."); });

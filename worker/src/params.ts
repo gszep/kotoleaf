@@ -17,6 +17,8 @@ const OVERRIDDEN = new Set([
 	"version",
 	// Worker-only option, never forwarded to Deepgram.
 	"store",
+	// Names/hints must not be copied into Deepgram usage records.
+	"redact_usage",
 ]);
 
 export type Mode = "live" | "batch";
@@ -36,6 +38,7 @@ export function deepgramQuery(client: URLSearchParams, glossary: string[], mode:
 
 	out.set("model", MODEL);
 	out.set("language", "multi");
+	out.set("redact_usage", "true");
 	for (const hint of LANGUAGE_HINTS) out.append("language_hint", hint);
 
 	const terms: string[] = [];

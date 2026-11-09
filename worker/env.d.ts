@@ -2,6 +2,10 @@ declare module "*.txt" {
 	const text: string;
 	export default text;
 }
+declare module "*.html" {
+	const text: string;
+	export default text;
+}
 
 interface Env {
 	DEEPGRAM_API_KEY: string;

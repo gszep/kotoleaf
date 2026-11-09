@@ -5,7 +5,7 @@
 	"compatibility_date": "2026-10-01",
 	"workers_dev": true,
 	"vars": { "HOT_DAYS": "7", "DEEPGRAM_URL": "https://api.deepgram.com/v1/listen" },
-	"rules": [{ "type": "Text", "globs": ["**/*.txt"], "fallthrough": true }],
+	"rules": [{ "type": "Text", "globs": ["**/*.txt", "**/*.html"], "fallthrough": true }],
 	"durable_objects": { "bindings": [{ "name": "TRANSCRIPTS", "class_name": "Transcripts" }] },
 	"r2_buckets": [{ "binding": "ARCHIVE", "bucket_name": "kotoleaf-transcripts" }],
 	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["Transcripts"] }],

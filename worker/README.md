@@ -132,6 +132,11 @@ real Durable Object SQLite across runtime restarts, retries, token isolation,
 all three speech paths, upstream failure/reconnect, review and persistent undo
 using a mock Deepgram. No paid calls, real meeting data or microphones are used.
 
+For a static Tailscale preview, run `node test/make-preview.mjs` and serve the
+generated `.preview/` directory under its own path in the existing Serve config.
+This copy always uses synthetic demo mode and needs no server/background job.
+Deployment proof and limitations: `DELIVERY-2026-11-09.md`.
+
 Design evidence: Deepgram's [keyterm guide](https://developers.deepgram.com/docs/keyterm)
 (retrieved 9 Nov 2026) supports Nova-3 multilingual hints, recommends small focused
 lists and `redact_usage=true` for names, and documents both the 500-token limit

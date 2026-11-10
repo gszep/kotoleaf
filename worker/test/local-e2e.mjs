@@ -29,9 +29,11 @@ const result = (isFinal, transcript, w) => ({
 });
 
 const mock = createServer((req, res) => {
-	seen.push({ url: req.url, auth: req.headers.authorization });
-	req.resume();
+	const call = { url: req.url, auth: req.headers.authorization, method: req.method, contentType: req.headers["content-type"], privateHeader: req.headers["x-client-private"], body: [] };
+	seen.push(call);
+	req.on("data", chunk => call.body.push(chunk));
 	req.on("end", () => {
+		call.body = Buffer.concat(call.body);
 		if (failNextBatch) { failNextBatch = false; res.writeHead(503); res.end("synthetic upstream unavailable"); return; }
 		res.writeHead(200, { "Content-Type": "application/json" });
 		res.end(JSON.stringify({ results: { channels: [{ alternatives: [{ transcript: "今日は meeting", words }] }] } }));
@@ -39,7 +41,7 @@ const mock = createServer((req, res) => {
 });
 const wss = new WebSocketServer({ server: mock });
 wss.on("connection", (socket, req) => {
-	seen.push({ url: req.url, auth: req.headers.authorization, ws: true });
+	seen.push({ url: req.url, auth: req.headers.authorization, method: req.method, privateHeader: req.headers["x-client-private"], ws: true });
 	socket.on("message", (_data, isBinary) => {
 		if (!isBinary && String(_data) === "simulate-upstream-failure") { socket.close(1011, "synthetic upstream failure"); return; }
 		if (!isBinary) return;
@@ -122,6 +124,9 @@ try {
 	const chatResult = await fetch(`${base}/v1/audio/transcriptions`, { method: "POST", headers: chatAuth, body: chatForm });
 	assert.equal(chatResult.status, 200);
 	assert.equal((await chatResult.json()).text, "今日は meeting");
+	assert.equal(seen.at(-1).method, "POST");
+	assert.equal(seen.at(-1).contentType, "audio/ogg;codecs=opus");
+	assert.deepEqual(seen.at(-1).body, Buffer.alloc(64), "OpenAI adapter streams file bytes, not multipart framing");
 	assert.ok(!new URL(seen.at(-1).url, "http://x").searchParams.getAll("keyterm").includes(correction.term), "chat transcription does not inherit another label's names");
 
 	// OpenAI-compatible dictation route.
@@ -129,7 +134,7 @@ try {
 	form.append("file", new Blob([new Uint8Array(64)], { type: "audio/wav" }), "audio.wav");
 	form.append("model", "whisper-1");
 	form.append("language", "en");
-	const openai = await fetch(`${base}/v1/audio/transcriptions`, { method: "POST", headers: auth, body: form });
+	const openai = await fetch(`${base}/v1/audio/transcriptions`, { method: "POST", headers: { ...auth, "X-Client-Private": "synthetic-client-only" }, body: form });
 	assert.equal(openai.status, 200, await openai.clone().text());
 	assert.deepEqual(await openai.json(), { text: "今日は meeting", language: "ja" });
 	const dictation = new URL(seen.at(-1).url, "http://x").searchParams;
@@ -140,12 +145,18 @@ try {
 	assert.ok(dictation.getAll("keyterm").includes(correction.term), "saved correction reapplied after runtime restart");
 	assert.equal(dictation.get("redact_usage"), "true");
 	assert.equal(seen.at(-1).auth, "Token mock-deepgram-key", "worker substitutes the Deepgram key");
+	assert.equal(seen.at(-1).privateHeader, undefined);
+	assert.equal(seen.at(-1).contentType, "audio/wav");
+	failNextBatch = true;
+	const openaiFailure = await fetch(`${base}/v1/audio/transcriptions`, { method: "POST", headers: auth, body: form });
+	assert.equal(openaiFailure.status, 503);
+	assert.deepEqual(await openaiFailure.json(), { error: { message: "synthetic upstream unavailable" } });
 
 	// Deepgram-compatible pre-recorded route.
 	const batch = await fetch(`${base}/v1/listen?model=nova-2&language=en&detect_language=en&diarize=true`, {
 		method: "POST",
-		headers: { Authorization: `Token ${TOKEN}`, "Content-Type": "audio/wav" },
-		body: new Uint8Array(64),
+		headers: { Authorization: `Token ${TOKEN}`, "Content-Type": "audio/wav", "X-Client-Private": "synthetic-client-only" },
+		body: new Uint8Array([0, 127, 128, 255]),
 	});
 	assert.equal(batch.status, 200);
 	const batchQuery = new URL(seen.at(-1).url, "http://x").searchParams;
@@ -153,6 +164,11 @@ try {
 	assert.equal(batchQuery.has("detect_language"), false);
 	assert.equal(batchQuery.get("diarize"), "true");
 	assert.ok(batchQuery.getAll("keyterm").includes(correction.term));
+	assert.equal(seen.at(-1).method, "POST");
+	assert.equal(seen.at(-1).auth, "Token mock-deepgram-key");
+	assert.equal(seen.at(-1).privateHeader, undefined);
+	assert.equal(seen.at(-1).contentType, "audio/wav");
+	assert.deepEqual(seen.at(-1).body, Buffer.from([0, 127, 128, 255]), "Deepgram adapter preserves raw bytes");
 	failNextBatch = true;
 	assert.equal((await fetch(`${base}/v1/listen`, { method: "POST", headers: auth, body: "synthetic" })).status, 503);
 	assert.deepEqual((await (await learn()).json()).keyterms, [correction.term], "upstream failure never loses saved learning");
@@ -160,7 +176,7 @@ try {
 	console.log("http routes ok");
 	// Deepgram-compatible live route: relay plus storage of non-interim messages.
 	const socket = new WebSocket(`ws://127.0.0.1:${WORKER_PORT}/v1/listen?encoding=linear16&sample_rate=16000&channels=2&multichannel=true`, {
-		headers: { Authorization: `Token ${TOKEN}` },
+		headers: { Authorization: `Token ${TOKEN}`, "X-Client-Private": "synthetic-client-only" },
 	});
 	const received = [];
 	await new Promise((resolve, reject) => {
@@ -181,6 +197,9 @@ try {
 	assert.equal(liveQuery.get("endpointing"), "100");
 	assert.equal(liveQuery.get("channels"), "2");
 	assert.ok(liveQuery.getAll("keyterm").includes(correction.term));
+	assert.equal(seen.find(s => s.ws).method, "GET");
+	assert.equal(seen.find(s => s.ws).auth, "Token mock-deepgram-key");
+	assert.equal(seen.find(s => s.ws).privateHeader, undefined);
 
 	const transcript = await (await fetch(`${base}/meetings/latest/transcript`, { headers: auth })).text();
 	assert.match(transcript, /\[00:00\] ch0 S1 en\+ja: 今日は meeting/);

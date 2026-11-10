@@ -113,14 +113,19 @@ async function learning(request: Request, url: URL, env: Env, label: string): Pr
 	return reply({ error: "not found" }, 404);
 }
 
-async function scopedGlossary(env: Env, label: string): Promise<string[]> {
+async function requestDeepgram(env: Env, label: string, client: URLSearchParams,
+	input: { mode: "live" } | { mode: "batch"; body: BodyInit | null; contentType: string | null }): Promise<Response> {
 	// Fail visibly before opening upstream if learning storage is unavailable.
 	// A reconnect/new request takes a fresh snapshot; no mid-stream rewriting.
-	return [...await store(env).learningTerms(label), ...glossary];
-}
-
-function deepgramHeaders(env: Env, contentType?: string | null): HeadersInit {
-	return { Authorization: `Token ${env.DEEPGRAM_API_KEY}`, ...(contentType ? { "Content-Type": contentType } : {}) };
+	const terms = [...await store(env).learningTerms(label), ...glossary];
+	const query = deepgramQuery(client, terms, input.mode);
+	// Client credentials/headers never cross this one upstream boundary.
+	const headers: Record<string, string> = { Authorization: `Token ${env.DEEPGRAM_API_KEY}` };
+	if (input.mode === "live") headers.Upgrade = "websocket";
+	else if (input.contentType) headers["Content-Type"] = input.contentType;
+	return fetch(`${env.DEEPGRAM_URL}?${query}`, {
+		headers, ...(input.mode === "batch" ? { method: "POST", body: input.body } : {}),
+	});
 }
 
 // OpenAI-compatible route for Paseo dictation (`OPENAI_STT_BASE_URL=<origin>/v1`).
@@ -129,11 +134,8 @@ async function openaiTranscription(request: Request, env: Env, label: string): P
 	const form = await request.formData();
 	const file = form.get("file");
 	if (!file || typeof file === "string") return Response.json({ error: { message: "missing file" } }, { status: 400 });
-	const query = deepgramQuery(new URLSearchParams(), await scopedGlossary(env, label), "batch");
-	const response = await fetch(`${env.DEEPGRAM_URL}?${query}`, {
-		method: "POST",
-		headers: deepgramHeaders(env, file.type || "audio/wav"),
-		body: file.stream(),
+	const response = await requestDeepgram(env, label, new URLSearchParams(), {
+		mode: "batch", body: file.stream(), contentType: file.type || "audio/wav",
 	});
 	if (!response.ok) return Response.json({ error: { message: await response.text() } }, { status: response.status });
 	const result: any = await response.json();
@@ -147,11 +149,8 @@ async function openaiTranscription(request: Request, env: Env, label: string): P
 // Deepgram-compatible pre-recorded route (Anarlog after-recording). The body is
 // streamed through unchanged; only the query is rewritten. Results are not stored.
 async function batch(request: Request, env: Env, label: string): Promise<Response> {
-	const query = deepgramQuery(new URL(request.url).searchParams, await scopedGlossary(env, label), "batch");
-	const response = await fetch(`${env.DEEPGRAM_URL}?${query}`, {
-		method: "POST",
-		headers: deepgramHeaders(env, request.headers.get("Content-Type")),
-		body: request.body,
+	const response = await requestDeepgram(env, label, new URL(request.url).searchParams, {
+		mode: "batch", body: request.body, contentType: request.headers.get("Content-Type"),
 	});
 	return new Response(response.body, { status: response.status, headers: { "Content-Type": response.headers.get("Content-Type") ?? "application/json" } });
 }
@@ -159,8 +158,7 @@ async function batch(request: Request, env: Env, label: string): Promise<Respons
 // Deepgram-compatible streaming route (Anarlog live). Audio frames pass through;
 // every non-interim message from Deepgram is also stored verbatim for agents.
 async function live(request: Request, env: Env, ctx: ExecutionContext, label: string): Promise<Response> {
-	const query = deepgramQuery(new URL(request.url).searchParams, await scopedGlossary(env, label), "live");
-	const upstreamResponse = await fetch(`${env.DEEPGRAM_URL}?${query}`, { headers: { Upgrade: "websocket", ...deepgramHeaders(env) } });
+	const upstreamResponse = await requestDeepgram(env, label, new URL(request.url).searchParams, { mode: "live" });
 	const upstream = upstreamResponse.webSocket;
 	if (!upstream) return new Response(await upstreamResponse.text(), { status: upstreamResponse.status || 502 });
 	upstream.accept();

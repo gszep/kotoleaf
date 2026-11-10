@@ -41,8 +41,9 @@ binding, nothing is deleted.
 - **Anarlog:** Settings → Transcription → Custom. Set the base URL to
   `https://kotoleaf.wandering-sky-fcce.workers.dev` and the API key to the `grisha-dictation`
   token. Select English and Japanese as spoken languages.
-- **Agents (OpenCode remote MCP):**
-  `"kotoleaf": { "type": "remote", "url": "https://kotoleaf.wandering-sky-fcce.workers.dev/mcp", "headers": { "Authorization": "Bearer <grisha-agents token>" } }`
+- **Agents:** stateless MCP endpoint `https://kotoleaf.wandering-sky-fcce.workers.dev/mcp`.
+  Supply the existing agent token through the client's private Authorization-header
+  configuration, not a token committed in a configuration example.
 
 Per-word language tags are unreliable for katakana loanwords and names that exist in both
 languages. The `language` filter matches any line containing that language, so read the
@@ -51,7 +52,7 @@ surrounding lines too.
 ## Setup and deploy
 
 ```sh
-npm install
+npm ci
 npm test            # unit tests
 npm run test:e2e    # wrangler dev against a mock Deepgram; no credentials
 npm run check
@@ -71,18 +72,15 @@ Plan and storage (done 28 Oct): Workers Paid with `limits.cpu_ms = 300000`, beca
 measured 42 ms CPU per 16 s of audio, or about 20 s for 2 hours. The R2 bucket `kotoleaf-transcripts`
 is bound as `ARCHIVE`.
 
-## Verified (28 Oct 2026)
+## Verification boundary
 
-- Real Deepgram, using synthetic EN/JA speech made with macOS `say`:
-  - The OpenAI and batch routes return mixed EN/JA text from `general-nova-3`, with both `en` and `ja` word tags. Dictation took 1.4 s for 15 s of audio.
-  - Live streaming returned its first result after 1.5–2.1 s. The meeting was stored and marked ended on close.
-  - The `language=ja` filter and the MCP `transcript` tool return the mixed line.
-- Not yet verified:
-  - Anarlog's Custom provider end to end.
-  - Paseo end to end.
-  - Behaviour when a live connection drops.
-  - Real meeting audio.
-- Sessions longer than about 16 s.
+The synthetic suite covers all three client protocols, original bytes, credential
+replacement, SQLite retention/undo, upstream failures and reconnects. The optional
+mobile test covers actual rendering and lost-response retries. It does not prove
+real meeting accuracy, long-session reliability or Paseo/Anarlog end-to-end use.
+Historical provider timings are in `git show 0263c71:worker/README.md`; do not treat
+them as current guarantees. The [9 November receipt](DELIVERY-2026-11-09.md) records
+that deployment and its limitations, not the current release identity.
 
 ## Confirmed learning (9 Nov 2026)
 

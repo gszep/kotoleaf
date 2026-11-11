@@ -8,6 +8,7 @@ declare module "*.html" {
 }
 
 interface Env {
+	CF_VERSION_METADATA: WorkerVersionMetadata;
 	DEEPGRAM_API_KEY: string;
 	ACCESS_TOKENS: string;
 	/** Dedicated, transcription-only credential for the chat bridge. */

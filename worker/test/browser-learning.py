@@ -52,6 +52,19 @@ with owned_page(viewport={"width": 390, "height": 844}) as page:
     page.get_by_role("button", name="Confirm and remember").click()
     expect(page.locator("#cards article")).to_have_count(1)
     expect(page.locator("#hints")).to_contain_text("紅葉ラボ")
+    if args.demo:
+        page.get_by_role("button", name="Try synthetic dictation receipt").click()
+        expect(page.locator("#receipt")).to_contain_text("紅葉ラボ — Supplied · Found in returned text")
+        expect(page.locator("#status")).to_contain_text("No audio or recognition call")
+    else:
+        expect(page.locator("#demo-receipt")).to_be_hidden()
+        # Local mock only; this script refuses remote non-demo URLs above.
+        response = page.request.post(urlparse(args.url)._replace(path="/v1/audio/transcriptions").geturl(),
+            headers={"Authorization": "Bearer local-other-token"},
+            multipart={"file": {"name": "synthetic.wav", "mimeType": "audio/wav", "buffer": bytes(64)}})
+        assert response.status == 200
+        page.get_by_role("button", name="Reload saved learning").click()
+        expect(page.locator("#receipt")).to_contain_text("紅葉ラボ — Supplied · Not found in returned text")
     page.get_by_role("button", name="Reveal reading / meaning").click()
     expect(page.locator("#cards")).to_contain_text("こうようラボ")
     page.get_by_role("button", name="Known", exact=True).click()
@@ -70,6 +83,7 @@ with owned_page(viewport={"width": 390, "height": 844}) as page:
     page.get_by_role("button", name="Undo confirmation").click()
     expect(page.locator("#cards article")).to_have_count(0)
     expect(page.locator("#hints")).to_contain_text("No personal hints")
+    expect(page.locator("#receipt")).to_contain_text("紅葉ラボ — Supplied", timeout=5000)
     page.reload(wait_until="networkidle")
     if not args.demo:
         page.locator("#token").fill("local-other-token")
@@ -77,7 +91,8 @@ with owned_page(viewport={"width": 390, "height": 844}) as page:
     expect(page.locator("#cards article")).to_have_count(0)
     page.locator("summary").click()
     expect(page.locator("#history")).to_contain_text("Undone")
+    expect(page.locator("#receipt")).to_contain_text("紅葉ラボ — Supplied")
     assert not errors, errors
     if args.demo:
         assert not private_requests, private_requests
-    print("Mobile browser passed: explicit confirmation, hint, reveal, review, reload, undo, no overflow/JS errors" + ("; no private API calls" if args.demo else "; lost-response retry and reconnect"))
+    print("Mobile browser passed: explicit confirmation, hint receipt, reveal, review, reload, undo preserves receipt, no overflow/JS errors" + ("; no private API calls" if args.demo else "; lost-response retry and reconnect"))

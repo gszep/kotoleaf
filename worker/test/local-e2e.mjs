@@ -2,7 +2,8 @@
 // exercises every route. No real credentials or audio are used.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,6 +14,8 @@ const WORKER_PORT = 18788;
 const TOKEN = "local-test-token";
 const seen = [];
 let failNextBatch = false;
+let nextTranscript = null;
+let holdNextBatch = null;
 
 const words = [
 	{ word: "今日", start: 0.1, end: 0.4, speaker: 1, language: "ja" },
@@ -32,11 +35,13 @@ const mock = createServer((req, res) => {
 	const call = { url: req.url, auth: req.headers.authorization, method: req.method, contentType: req.headers["content-type"], privateHeader: req.headers["x-client-private"], body: [] };
 	seen.push(call);
 	req.on("data", chunk => call.body.push(chunk));
-	req.on("end", () => {
+	req.on("end", async () => {
 		call.body = Buffer.concat(call.body);
+		if (holdNextBatch) { const hold = holdNextBatch; holdNextBatch = null; await hold(); }
 		if (failNextBatch) { failNextBatch = false; res.writeHead(503); res.end("synthetic upstream unavailable"); return; }
 		res.writeHead(200, { "Content-Type": "application/json" });
-		res.end(JSON.stringify({ results: { channels: [{ alternatives: [{ transcript: "今日は meeting", words }] }] } }));
+		res.end(JSON.stringify({ results: { channels: [{ alternatives: [{ transcript: nextTranscript ?? "今日は meeting", words }] }] } }));
+		nextTranscript = null;
 	});
 });
 const wss = new WebSocketServer({ server: mock });
@@ -67,6 +72,17 @@ async function stopWorker() {
 	await new Promise(resolve => { wrangler.once("exit", resolve); wrangler.kill("SIGTERM"); });
 }
 
+// Fault injection is restricted to this run's synthetic DB, with workerd stopped.
+function receiptSql(sql) {
+	for (const file of readdirSync(dir, { recursive: true }).filter(file => file.endsWith(".sqlite"))) {
+		const db = new DatabaseSync(join(dir, file));
+		try {
+			if (db.prepare("SELECT name FROM sqlite_master WHERE name = 'hint_receipts'").get()) { db.exec(sql); return; }
+		} finally { db.close(); }
+	}
+	throw new Error("Synthetic receipt database not found");
+}
+
 const base = `http://127.0.0.1:${WORKER_PORT}`;
 const auth = { Authorization: `Bearer ${TOKEN}` };
 async function ready() {
@@ -85,6 +101,12 @@ try {
 	assert.equal((await fetch(`${base}/learn?demo=1`)).status, 200);
 	assert.match(await (await fetch(`${base}/learn.js`)).text(), /synthetic-learning-v1/);
 	assert.equal((await fetch(`${base}/learning`)).status, 401);
+	for (const authorization of ["", "Bearer wrong", "Bearer local-test-tokex", "Basic local-test-token"]) {
+		assert.equal((await fetch(`${base}/learning`, { headers: { Authorization: authorization } })).status, 401, "invalid credential rejected");
+	}
+	for (const authorization of [`Bearer ${TOKEN}`, `Token ${TOKEN}`, `bEaReR   ${TOKEN}`, TOKEN]) {
+		assert.equal((await fetch(`${base}/learning`, { headers: { Authorization: authorization } })).status, 200, "existing credential syntax preserved");
+	}
 	const learn = async (path = "", method = "GET", body, headers = auth) => fetch(`${base}/learning${path}`, { method, headers: { ...headers, "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
 	const correction = { id: crypto.randomUUID(), original: "光洋ラボ", term: "紅葉ラボ", reading: "こうようラボ", meaning: "Koyo Lab — fictional", confirmed: true };
 	assert.equal((await learn("", "POST", { ...correction, confirmed: false })).status, 400);
@@ -111,6 +133,7 @@ try {
 	assert.equal(restored.corrections[0].reviews, 1, "review survives restart without duplicate retry");
 	assert.equal(restored.corrections[0].last_rating, "again");
 	assert.deepEqual(restored.keyterms, [correction.term]);
+	assert.equal(restored.last_hint_receipt, null, "no invented/backfilled receipt");
 	assert.equal((await fetch(`${base}/meetings`)).status, 401, "unauthenticated request rejected");
 	const chatAuth = { Authorization: "Bearer local-chat-only-token" };
 	assert.equal((await fetch(`${base}/meetings`, { headers: chatAuth })).status, 401, "chat token cannot read meeting content");
@@ -123,6 +146,7 @@ try {
 	chatForm.append("file", new Blob([new Uint8Array(64)], { type: "audio/ogg;codecs=opus" }), "voice.ogg");
 	const chatResult = await fetch(`${base}/v1/audio/transcriptions`, { method: "POST", headers: chatAuth, body: chatForm });
 	assert.equal(chatResult.status, 200);
+	assert.equal(chatResult.headers.get("x-kotoleaf-hint-receipt"), "not-recorded", "chat-only dictation retains no receipt");
 	assert.equal((await chatResult.json()).text, "今日は meeting");
 	assert.equal(seen.at(-1).method, "POST");
 	assert.equal(seen.at(-1).contentType, "audio/ogg;codecs=opus");
@@ -137,6 +161,13 @@ try {
 	const openai = await fetch(`${base}/v1/audio/transcriptions`, { method: "POST", headers: { ...auth, "X-Client-Private": "synthetic-client-only" }, body: form });
 	assert.equal(openai.status, 200, await openai.clone().text());
 	assert.deepEqual(await openai.json(), { text: "今日は meeting", language: "ja" });
+	assert.equal(openai.headers.get("x-kotoleaf-hint-receipt"), "saved");
+	assert.equal(openai.headers.get("cache-control"), "no-store");
+	const firstReceipt = (await (await learn()).json()).last_hint_receipt;
+	assert.deepEqual(firstReceipt.terms, [{ term: correction.term, appeared: false }]);
+	assert.ok(firstReceipt.started <= firstReceipt.completed);
+	assert.deepEqual(Object.keys(firstReceipt).sort(), ["completed", "id", "started", "terms"], "no transcript/audio retained in receipt");
+	assert.equal((await (await learn("", "GET", undefined, otherAuth)).json()).last_hint_receipt, null, "receipt is label isolated");
 	const dictation = new URL(seen.at(-1).url, "http://x").searchParams;
 	assert.equal(dictation.get("model"), "nova-3");
 	assert.equal(dictation.get("language"), "multi");
@@ -147,10 +178,17 @@ try {
 	assert.equal(seen.at(-1).auth, "Token mock-deepgram-key", "worker substitutes the Deepgram key");
 	assert.equal(seen.at(-1).privateHeader, undefined);
 	assert.equal(seen.at(-1).contentType, "audio/wav");
+	nextTranscript = `今日は${correction.term}です。`;
+	const matched = await fetch(`${base}/v1/audio/transcriptions`, { method: "POST", headers: auth, body: form });
+	assert.equal((await matched.json()).text, `今日は${correction.term}です。`, "original provider text stays unchanged");
+	let matchedReceipt = (await (await learn()).json()).last_hint_receipt;
+	assert.deepEqual(matchedReceipt.terms, [{ term: correction.term, appeared: true }]);
+	assert.notEqual(matchedReceipt.id, firstReceipt.id, "latest successful dictation replaces, not appends");
 	failNextBatch = true;
 	const openaiFailure = await fetch(`${base}/v1/audio/transcriptions`, { method: "POST", headers: auth, body: form });
 	assert.equal(openaiFailure.status, 503);
 	assert.deepEqual(await openaiFailure.json(), { error: { message: "synthetic upstream unavailable" } });
+	assert.deepEqual((await (await learn()).json()).last_hint_receipt, matchedReceipt, "failure does not masquerade as a successful receipt");
 
 	// Deepgram-compatible pre-recorded route.
 	const batch = await fetch(`${base}/v1/listen?model=nova-2&language=en&detect_language=en&diarize=true`, {
@@ -235,11 +273,23 @@ try {
 	});
 	assert.deepEqual((await (await learn()).json()).keyterms, [correction.term]);
 	assert.equal((await learn(`/${correction.id}/reviews`, "POST", { id: crypto.randomUUID(), rating: "known" })).status, 201);
+	let releaseBatch, enteredBatch;
+	const entered = new Promise(resolve => { enteredBatch = resolve; });
+	holdNextBatch = () => { enteredBatch(); return new Promise(resolve => { releaseBatch = resolve; }); };
+	nextTranscript = correction.term;
+	const inFlight = fetch(`${base}/v1/audio/transcriptions`, { method: "POST", headers: auth, body: form });
+	await entered;
 	assert.equal((await learn(`/${correction.id}`, "PATCH", { active: false })).status, 200);
+	assert.deepEqual((await (await learn()).json()).last_hint_receipt, matchedReceipt, "undo preserves the existing receipt");
+	releaseBatch();
+	assert.equal((await (await inFlight).json()).text, correction.term);
+	matchedReceipt = (await (await learn()).json()).last_hint_receipt;
+	assert.deepEqual(matchedReceipt.terms, [{ term: correction.term, appeared: true }], "in-flight receipt uses sent snapshot even after undo");
 	assert.equal((await learn(`/${correction.id}`, "PATCH", { active: false })).status, 200, "undo retries are safe");
 	// A delayed retry of the original save must never resurrect a retracted hint.
 	assert.equal((await learn("", "POST", correction)).status, 200);
 	assert.deepEqual((await (await learn()).json()).keyterms, []);
+	assert.deepEqual((await (await learn()).json()).last_hint_receipt, matchedReceipt, "undo and batch/live requests never rewrite the past dictation snapshot");
 	assert.equal((await learn(`/${correction.id}/reviews`, "POST", { id: crypto.randomUUID(), rating: "known" })).status, 404);
 	await fetch(`${base}/v1/listen`, { method: "POST", headers: auth, body: "synthetic" });
 	assert.ok(!new URL(seen.at(-1).url, "http://x").searchParams.getAll("keyterm").includes(correction.term), "undo removes next-request hint");
@@ -276,6 +326,19 @@ try {
 	assert.equal(undone.reviews, 2);
 	assert.equal(undone.last_rating, "known");
 	assert.ok(undone.retracted >= undone.created);
+	assert.deepEqual((await (await learn()).json()).last_hint_receipt, matchedReceipt, "receipt survives restart and archive without changing provenance");
+	await stopWorker();
+	receiptSql("CREATE TRIGGER fail_receipt BEFORE INSERT ON hint_receipts BEGIN SELECT RAISE(FAIL, 'synthetic receipt storage failure'); END");
+	wrangler = startWorker(); await ready();
+	const storageFailure = await fetch(`${base}/v1/audio/transcriptions`, { method: "POST", headers: auth, body: form });
+	assert.equal(storageFailure.status, 200, "receipt failure must not lose successful dictation");
+	assert.deepEqual(await storageFailure.json(), { text: "今日は meeting", language: "ja" });
+	assert.equal(storageFailure.headers.get("x-kotoleaf-hint-receipt"), "unavailable");
+	assert.deepEqual((await (await learn()).json()).last_hint_receipt, matchedReceipt, "failed receipt write retains previous timestamp and data");
+	await stopWorker(); receiptSql("DROP TRIGGER fail_receipt");
+	wrangler = startWorker(); await ready();
+	await fetch(`${base}/v1/audio/transcriptions`, { method: "POST", headers: auth, body: form });
+	assert.deepEqual((await (await learn()).json()).last_hint_receipt.terms, [], "next dictation after undo records zero confirmed hints");
 	if (process.env.KOTOLEAF_BROWSER_PYTHON) {
 		await new Promise((resolve, reject) => {
 			const browser = spawn(process.env.KOTOLEAF_BROWSER_PYTHON, ["test/browser-learning.py", `${base}/learn`], { stdio: "inherit" });

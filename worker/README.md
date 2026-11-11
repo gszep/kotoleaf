@@ -14,7 +14,7 @@ transcripts so agents can read them during the meeting.
 | `POST /mcp` | Agents (MCP over HTTP, stateless JSON) | Tools: `list_meetings`, `transcript`, `raw_messages` |
 | `GET /archive`, `/archive/<id>`, `POST /archive/run` | Older meetings | gzipped JSON lines in R2; `run` archives now instead of waiting for Sunday |
 | `GET /learn`, `/learn?demo=1` | Phone-friendly confirmed learning | Public shell; real data requires an existing access token. Demo is synthetic, browser-local, no ASR calls |
-| `GET/POST /learning`, `PATCH /learning/<id>`, `POST /learning/<id>/reviews` | Confirmed terms and review log | Scoped to the authenticated token **label**; chat-only token has no access |
+| `GET/POST /learning`, `PATCH /learning/<id>`, `POST /learning/<id>/reviews` | Confirmed terms, review log and last dictation hint receipt | Scoped to the authenticated token **label**; chat-only token has no access |
 
 Every route except `/health`, `/learn` and its `/learn.js` asset needs `Authorization: Bearer <token>` or `Token <token>`.
 Tokens are the `ACCESS_TOKENS` secret, as comma-separated `label:token` pairs. The label is
@@ -29,7 +29,8 @@ secret and the bridge's private token file; do not extract another app's token.
 Storage: meetings stay in a SQLite Durable Object for `HOT_DAYS` (7). Every Sunday at 03:00 JST,
 older meetings are written to R2 as one gzipped JSON-lines file each (a metadata line,
 then the stored Deepgram messages) and removed from the Durable Object. Without an R2
-binding, nothing is deleted.
+binding, nothing is deleted. Learning history and the single latest dictation
+hint receipt per label are separate from meeting archival.
 
 ## Clients
 
@@ -74,13 +75,14 @@ is bound as `ARCHIVE`.
 
 ## Verification boundary
 
-The synthetic suite covers all three client protocols, original bytes, credential
-replacement, SQLite retention/undo, upstream failures and reconnects. The optional
-mobile test covers actual rendering and lost-response retries. It does not prove
-real meeting accuracy, long-session reliability or Paseo/Anarlog end-to-end use.
-Historical provider timings are in `git show 0263c71:worker/README.md`; do not treat
-them as current guarantees. The [9 November receipt](DELIVERY-2026-11-09.md) records
-that deployment and its limitations, not the current release identity.
+The mock E2E suite covers all three client protocols, original bytes, credential
+replacement/isolation, SQLite restart retention, review/undo, failures/reconnects
+and dictation receipt snapshots. Optional mobile checks cover rendering and
+lost-response retries. No paid calls, real meeting data or microphones are used;
+this does not prove accuracy gains, long-session reliability or app end-to-end use.
+Deployment evidence: [12 November](DELIVERY-2026-11-12.md); historical learning
+delivery: [9 November](DELIVERY-2026-11-09.md). Older provider timings remain in
+`git show 0263c71:worker/README.md`, not current guarantees.
 
 ## Confirmed learning (9 Nov 2026)
 
@@ -124,19 +126,40 @@ provider tokenizer. Only confirmed spellings go upstream, not recognised forms,
 readings or meanings. `redact_usage=true` is enforced so names in query hints are
 redacted from Deepgram usage records. This does not change provider audio retention.
 
-The public `/learn?demo=1` uses only browser-local synthetic examples. Its reload
-demonstrates local retention, **not** production SQLite. `npm run test:e2e` checks
-real Durable Object SQLite across runtime restarts, retries, token isolation,
-all three speech paths, upstream failure/reconnect, review and persistent undo
-using a mock Deepgram. No paid calls, real meeting data or microphones are used.
+The public `/learn?demo=1` uses browser-local synthetic examples. Reload demonstrates
+local retention, **not** production SQLite; the mock E2E suite checks the latter.
 
 For a static Tailscale preview, run `node test/make-preview.mjs` and serve the
 generated `.preview/` directory under its own path in the existing Serve config.
 This copy always uses synthetic demo mode and needs no server/background job.
-Deployment proof and limitations: `DELIVERY-2026-11-09.md`.
+
+## Dictation hint receipts (12 Nov 2026)
+
+After a successful `/v1/audio/transcriptions` request, open `/learn` with the same
+token label and choose **Reload saved learning**. The receipt shows the personal
+confirmed hints actually included in that request's query and which occur in its
+returned text. `GET /learning` exposes it as `last_hint_receipt` (or `null`).
+
+Only one receipt is retained per label: request UUID, start/completion timestamps,
+spellings and `appeared` flags. No transcript or audio is copied. Matching uses
+case-sensitive NFC-normalized substrings, not word boundaries, fuzzy matching or
+causal attribution. Capitalization/spacing differences can yield “not found”;
+substring matches can occur inside longer words. Neither result measures accuracy.
+Undo does not rewrite past receipts; the next successful dictation replaces them,
+including an empty list if no personal hints remain. Requests already in flight
+keep their original snapshot. There is no backfill or receipt history.
+
+Batch/live routes, glossary/client hints and the chat-only credential are outside
+this receipt feature. Failed upstream requests leave the last successful receipt.
+Receipt storage failure must not lose successful dictation: the unchanged response
+body is returned with `X-Kotoleaf-Hint-Receipt: unavailable`; otherwise this header
+is `saved`, or `not-recorded` for chat/no valid transcript. Check the receipt time
+before attributing it to a new request. Successful dictation responses are `no-store`.
+The demo's **Try synthetic dictation receipt** compares against fixed invented text;
+it never runs recognition.
 
 Design evidence: Deepgram's [keyterm guide](https://developers.deepgram.com/docs/keyterm)
-(retrieved 9 Nov 2026) supports Nova-3 multilingual hints, recommends small focused
+(retrieved 12 Nov 2026) supports Nova-3 multilingual hints, recommends small focused
 lists and `redact_usage=true` for names, and documents both the 500-token limit
 and optional mid-stream `Configure`. We deliberately use next-request snapshots
 rather than mid-stream mutation in this bounded increment.

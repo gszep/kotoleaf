@@ -2,6 +2,7 @@
 const $ = (id) => document.getElementById(id);
 const demo = new URL(location.href).searchParams.get("demo") === "1";
 const demoKey = "kotoleaf-synthetic-learning-v1";
+const demoReceiptKey = "kotoleaf-synthetic-hint-receipt-v1";
 let token = "", pendingSave = null;
 const pendingReviews = new Map();
 function status(text, error = false) { $("status").textContent = text; $("status").className = error ? "error" : ""; }
@@ -24,7 +25,12 @@ async function api(path = "", method = "GET", body) {
 function demoApi(path, method, body) {
   let entries = JSON.parse(localStorage.getItem(demoKey) || "[]");
   if (!Array.isArray(entries)) throw new Error("Demo storage is invalid.");
-  if (method === "GET") return { scope: "synthetic browser demo", corrections: entries, keyterms: entries.filter(c => c.active).map(c => c.term) };
+  if (method === "GET") return { scope: "synthetic browser demo", corrections: entries, keyterms: entries.filter(c => c.active).map(c => c.term), last_hint_receipt: JSON.parse(localStorage.getItem(demoReceiptKey) || "null") };
+  if (path === "/demo-receipt") {
+    const transcript = "今日は紅葉ラボの meeting です。";
+    localStorage.setItem(demoReceiptKey, JSON.stringify({ id: crypto.randomUUID(), started: Date.now(), completed: Date.now(), terms: entries.filter(c => c.active).map(c => ({ term: c.term, appeared: transcript.normalize("NFC").includes(c.term.normalize("NFC")) })) }));
+    return { ok: true };
+  }
   if (!path && method === "POST") {
     const active = entries.filter(c => c.active);
     if (!body.confirmed || !body.term.trim() || new TextEncoder().encode(body.term).length > 48) throw new Error("Confirm a spelling of up to 48 UTF-8 bytes.");
@@ -60,6 +66,14 @@ async function refresh() {
   $("workspace").hidden = false;
   $("connect-panel").hidden = true;
   $("hints").textContent = data.keyterms.length ? "Confirmed hints: " + data.keyterms.join(" · ") : "No personal hints. Confirm a term above to start.";
+  $("receipt").replaceChildren();
+  const receipt = data.last_hint_receipt;
+  if (!receipt) $("receipt").append(node("p", "No dictation receipt yet. Existing transcriptions are not backfilled.", "muted"));
+  else {
+    $("receipt").append(node("p", (demo ? "Synthetic fixture · " : "Dictation · ") + "Sent " + new Date(receipt.started).toLocaleString() + " · Completed " + new Date(receipt.completed).toLocaleString(), "muted"));
+    if (!receipt.terms.length) $("receipt").append(node("p", "No confirmed personal hints were supplied for this request."));
+    for (const item of receipt.terms) $("receipt").append(node("p", item.term + " — Supplied · " + (item.appeared ? "Found in returned text" : "Not found in returned text")));
+  }
   $("cards").replaceChildren(); $("history").replaceChildren();
   for (const c of data.corrections) {
     const card = document.createElement("article");
@@ -104,6 +118,11 @@ $("correction-form").addEventListener("submit", (event) => {
   });
 });
 $("refresh").addEventListener("click", () => run(async () => { await refresh(); status("Saved learning reloaded."); }));
+$("demo-receipt").hidden = !demo;
+$("demo-receipt").addEventListener("click", () => run(async () => {
+  await api("/demo-receipt", "POST"); await refresh();
+  status("Synthetic text: 今日は紅葉ラボの meeting です。 No audio or recognition call was made.");
+}));
 $("disconnect").addEventListener("click", () => { token = ""; location.href = "/learn"; });
 $("example").addEventListener("click", () => {
   $("original").value = "光洋ラボ"; $("term").value = "紅葉ラボ"; $("reading").value = "こうようラボ"; $("meaning").value = "Koyo Lab — a fictional project"; $("confirmed").checked = false;

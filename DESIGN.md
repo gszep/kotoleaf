@@ -1,6 +1,6 @@
 # Kotoleaf architecture
 
-Current implementation, checked against the repository on 11 November 2026.
+Current implementation, checked against the repository on 12 November 2026.
 For philosophy and the bilingual name, see [README](README.md). Worker operation,
 API contracts, limits and recovery live in [worker/README](worker/README.md).
 
@@ -48,7 +48,9 @@ actual local workerd/SQLite across restarts and reconnects.
 - A new request/reconnect reloads hints; an already-open stream keeps its snapshot.
   Original provider messages/audio are not rewritten by learning operations.
 - Persisted live sessions store non-interim messages. `store=false` streams and
-  batch/dictation results are not stored as meetings. Saved learning is separate.
+  batch/dictation results are not stored as meetings. Saved learning is separate;
+  successful dictation retains one terms-only hint receipt per label, not its text
+  or audio. Receipt scope, matching semantics and failure behavior live in the runbook.
 - The existing weekly archive moves old meetings to R2 before removing hot rows;
   without R2, they remain hot. Confirmation/review history is not meeting archive data.
 
@@ -87,6 +89,8 @@ encounter cards. No new collection or recurring work follows from this roadmap.
 
 - [9 November delivery receipt](worker/DELIVERY-2026-11-09.md): historical deployment
   and synthetic-test evidence, not a claim that production private data was tested.
+- [12 November delivery receipt](worker/DELIVERY-2026-11-12.md): dictation hint
+  receipts, bounded authentication deduplication and deployed verification.
 - [Deepgram keyterm documentation](https://developers.deepgram.com/docs/keyterm):
   evidence used for the existing hint/usage-redaction policy, retrieved 9 November.
   Current limits and caveats are kept once in the worker runbook.

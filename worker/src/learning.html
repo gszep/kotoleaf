@@ -38,6 +38,13 @@
       <small>Original transcripts and audio are never rewritten. Reading, meaning and recognised spelling stay here; only the confirmed spelling becomes a hint. Undo stops future hints but keeps this confirmation's history. Even transient streams can use saved hints. Existing open streams keep their starting hints until reconnect.</small>
     </section>
     <section class="panel"><h2>2 · Next transcription</h2><p id="hints"></p><small>Hints guide recognition, not guaranteed replacements. The institutional glossary also stays in place. No audio is recorded or sent from this page.</small></section>
+    <section class="panel" aria-labelledby="receipt-title">
+      <h2 id="receipt-title">Last successful dictation · hint receipt</h2>
+      <div id="receipt" class="detail"></div>
+      <button id="demo-receipt" class="secondary" hidden>Try synthetic dictation receipt</button>
+      <p class="muted">Confirmed personal hints only; not glossary or client hints. “Found” means a case-sensitive substring after Unicode NFC normalization, not a word-boundary match or proof the hint helped. Different case, spacing or spelling can show as not found.</p>
+      <small>Dictation only—not batch or live meetings. Reload saved learning after dictating. One terms-only receipt is retained per token label, with request times and text-match flags; no audio or transcript is saved here. Undo affects future hints, not this past snapshot. Failed requests leave the previous receipt; if saving a receipt fails, its older timestamp remains.</small>
+    </section>
     <section><h2>3 · Practise your words</h2><p class="muted">Recall the reading or meaning, then reveal. “Again” and “Known” record your judgement; this is a simple review log, not spaced repetition yet. Both keep the speech hint active.</p><div id="cards"></div></section>
     <details><summary>Confirmation history · undone terms</summary><div id="history"></div></details>
   </div>

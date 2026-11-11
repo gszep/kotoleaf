@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import { dominantLanguage } from "./params";
 import { archiveCutoff, nextArchiveTime } from "./schedule";
 import { checkCapacity, type Correction, type CorrectionInput } from "./learning";
+import type { HintReceipt } from "./hint-receipt";
 
 // One SQLite-backed Durable Object instance ("main") holds every meeting.
 // Each non-interim Deepgram message is stored verbatim in `raw`; the other
@@ -53,6 +54,9 @@ export class Transcripts extends DurableObject<Env> {
 				PRIMARY KEY (owner, id)
 			);
 			CREATE INDEX IF NOT EXISTS reviews_by_correction ON correction_reviews (owner, correction_id, created);
+			CREATE TABLE IF NOT EXISTS hint_receipts (
+				owner TEXT PRIMARY KEY, completed INTEGER NOT NULL, receipt TEXT NOT NULL
+			);
 		`);
 		// Added after v1: comma-delimited set of word languages, e.g. ",en,ja,".
 		const columns = this.sql.exec("PRAGMA table_info(messages)").toArray().map((c) => c.name);
@@ -69,6 +73,26 @@ export class Transcripts extends DurableObject<Env> {
 
 	learningTerms(owner: string): string[] {
 		return this.sql.exec("SELECT term FROM corrections WHERE owner = ? AND active = 1 ORDER BY created DESC, rowid DESC", owner).toArray().map((r) => r.term as string);
+	}
+
+	learningState(owner: string) {
+		// One synchronous snapshot/RPC: displayed hints cannot disagree with the
+		// displayed confirmations because an undo landed between separate reads.
+		const corrections = this.corrections(owner);
+		return { corrections, keyterms: corrections.filter(c => c.active).map(c => c.term), last_hint_receipt: this.lastHintReceipt(owner) };
+	}
+
+	lastHintReceipt(owner: string): HintReceipt | null {
+		const row = this.sql.exec("SELECT receipt FROM hint_receipts WHERE owner = ?", owner).toArray()[0];
+		return row ? JSON.parse(row.receipt as string) : null;
+	}
+
+	saveHintReceipt(owner: string, receipt: HintReceipt): void {
+		// One terms-only snapshot per label. A delayed write cannot replace a more
+		// recently completed request. Undo never rewrites this historical snapshot.
+		this.sql.exec(`INSERT INTO hint_receipts (owner, completed, receipt) VALUES (?, ?, ?)
+			ON CONFLICT(owner) DO UPDATE SET completed = excluded.completed, receipt = excluded.receipt
+			WHERE excluded.completed >= hint_receipts.completed`, owner, receipt.completed, JSON.stringify(receipt));
 	}
 
 	// Synchronous SQL operations do not yield: limit checks and writes are atomic

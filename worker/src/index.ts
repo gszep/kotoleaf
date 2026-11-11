@@ -4,6 +4,7 @@ import type { Line, Meeting } from "./store";
 import { correctionInput, LearningError, uuid } from "./learning";
 import learningPage from "./learning.html";
 import learningScript from "./learning-browser.txt";
+import { hintReceipt } from "./hint-receipt";
 
 export { Transcripts } from "./store";
 
@@ -12,7 +13,7 @@ const glossary = parseGlossary(glossaryText);
 export default {
 	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 		const url = new URL(request.url);
-		if (url.pathname === "/health") return Response.json({ ok: true });
+		if (url.pathname === "/health") return Response.json({ ok: true, version: env.CF_VERSION_METADATA.id }, { headers: { "Cache-Control": "no-store" } });
 		// Public shell/demo contains no user data. Private data still requires the
 		// existing access token, supplied in a header, never in URLs or storage.
 		if (request.method === "GET" && ["/learn", "/learn.js"].includes(url.pathname)) {
@@ -24,7 +25,7 @@ export default {
 			} });
 		}
 
-		const label = await authenticate(request, env);
+		const label = authenticate(request, env);
 		if (!label) return Response.json({ error: "unauthorized" }, { status: 401 });
 
 		try {
@@ -47,23 +48,23 @@ export default {
 
 // Access tokens are a secret of comma-separated `label:token` pairs. Clients send
 // `Authorization: Bearer <token>` (OpenAI style) or `Token <token>` (Deepgram style).
-async function authenticate(request: Request, env: Env): Promise<string | null> {
+function authenticate(request: Request, env: Env): string | null {
 	const header = request.headers.get("Authorization") ?? "";
 	const presented = header.replace(/^(Bearer|Token)\s+/i, "").trim();
 	if (!presented) return null;
 	const encoder = new TextEncoder();
 	const given = encoder.encode(presented);
-	if (env.OPENCODE_CHAT_TOKEN) {
-		const expected = encoder.encode(env.OPENCODE_CHAT_TOKEN.trim());
-		if (expected.byteLength === given.byteLength && (crypto.subtle as unknown as { timingSafeEqual(a: ArrayBufferView, b: ArrayBufferView): boolean }).timingSafeEqual(expected, given)) {
-			return request.method === "POST" && new URL(request.url).pathname === "/v1/audio/transcriptions" ? "opencode-chat" : null;
-		}
+	const matches = (token: string) => {
+		const expected = encoder.encode(token.trim());
+		return expected.byteLength === given.byteLength && (crypto.subtle as unknown as { timingSafeEqual(a: ArrayBufferView, b: ArrayBufferView): boolean }).timingSafeEqual(expected, given);
+	};
+	if (env.OPENCODE_CHAT_TOKEN && matches(env.OPENCODE_CHAT_TOKEN)) {
+		return request.method === "POST" && new URL(request.url).pathname === "/v1/audio/transcriptions" ? "opencode-chat" : null;
 	}
 	for (const pair of (env.ACCESS_TOKENS ?? "").split(",")) {
 		const index = pair.indexOf(":");
 		if (index < 1) continue;
-		const expected = encoder.encode(pair.slice(index + 1).trim());
-		if (expected.byteLength === given.byteLength && (crypto.subtle as unknown as { timingSafeEqual(a: ArrayBufferView, b: ArrayBufferView): boolean }).timingSafeEqual(expected, given)) {
+		if (matches(pair.slice(index + 1))) {
 			return pair.slice(0, index).trim();
 		}
 	}
@@ -78,7 +79,7 @@ async function learning(request: Request, url: URL, env: Env, label: string): Pr
 	const db = store(env);
 	const reply = (data: unknown, status = 200) => Response.json(data, { status, headers: { "Cache-Control": "no-store" } });
 	const parts = url.pathname.split("/").filter(Boolean);
-	if (parts.length === 1 && request.method === "GET") return reply({ scope: label, corrections: await db.corrections(label), keyterms: await db.learningTerms(label) });
+	if (parts.length === 1 && request.method === "GET") return reply({ scope: label, ...await db.learningState(label) });
 	if (!["POST", "PATCH"].includes(request.method)) return reply({ error: "method not allowed" }, 405);
 	// Bound body size before parsing, even if Content-Length is absent/incorrect.
 	const reader = request.body?.getReader();
@@ -114,18 +115,21 @@ async function learning(request: Request, url: URL, env: Env, label: string): Pr
 }
 
 async function requestDeepgram(env: Env, label: string, client: URLSearchParams,
-	input: { mode: "live" } | { mode: "batch"; body: BodyInit | null; contentType: string | null }): Promise<Response> {
+	input: { mode: "live" } | { mode: "batch"; body: BodyInit | null; contentType: string | null }) {
 	// Fail visibly before opening upstream if learning storage is unavailable.
 	// A reconnect/new request takes a fresh snapshot; no mid-stream rewriting.
-	const terms = [...await store(env).learningTerms(label), ...glossary];
+	const personalTerms = await store(env).learningTerms(label);
+	const terms = [...personalTerms, ...glossary];
 	const query = deepgramQuery(client, terms, input.mode);
 	// Client credentials/headers never cross this one upstream boundary.
 	const headers: Record<string, string> = { Authorization: `Token ${env.DEEPGRAM_API_KEY}` };
 	if (input.mode === "live") headers.Upgrade = "websocket";
 	else if (input.contentType) headers["Content-Type"] = input.contentType;
-	return fetch(`${env.DEEPGRAM_URL}?${query}`, {
+	const started = Date.now();
+	const response = await fetch(`${env.DEEPGRAM_URL}?${query}`, {
 		headers, ...(input.mode === "batch" ? { method: "POST", body: input.body } : {}),
 	});
+	return { response, started, personalTerms: personalTerms.filter(term => query.getAll("keyterm").includes(term)) };
 }
 
 // OpenAI-compatible route for Paseo dictation (`OPENAI_STT_BASE_URL=<origin>/v1`).
@@ -134,22 +138,28 @@ async function openaiTranscription(request: Request, env: Env, label: string): P
 	const form = await request.formData();
 	const file = form.get("file");
 	if (!file || typeof file === "string") return Response.json({ error: { message: "missing file" } }, { status: 400 });
-	const response = await requestDeepgram(env, label, new URLSearchParams(), {
+	const { response, started, personalTerms } = await requestDeepgram(env, label, new URLSearchParams(), {
 		mode: "batch", body: file.stream(), contentType: file.type || "audio/wav",
 	});
 	if (!response.ok) return Response.json({ error: { message: await response.text() } }, { status: response.status });
 	const result: any = await response.json();
 	const alternative = result?.results?.channels?.[0]?.alternatives?.[0];
+	let receiptStatus = "not-recorded";
+	if (label !== "opencode-chat" && typeof alternative?.transcript === "string") {
+		const receipt = hintReceipt(crypto.randomUUID(), started, Date.now(), personalTerms, alternative.transcript);
+		try { await store(env).saveHintReceipt(label, receipt); receiptStatus = "saved"; }
+		catch { receiptStatus = "unavailable"; } // Never discard successful dictation if receipt storage fails.
+	}
 	return Response.json({
 		text: alternative?.transcript ?? "",
 		language: dominantLanguage(alternative?.words) ?? alternative?.languages?.[0],
-	});
+	}, { headers: { "Cache-Control": "no-store", "X-Kotoleaf-Hint-Receipt": receiptStatus } });
 }
 
 // Deepgram-compatible pre-recorded route (Anarlog after-recording). The body is
 // streamed through unchanged; only the query is rewritten. Results are not stored.
 async function batch(request: Request, env: Env, label: string): Promise<Response> {
-	const response = await requestDeepgram(env, label, new URL(request.url).searchParams, {
+	const { response } = await requestDeepgram(env, label, new URL(request.url).searchParams, {
 		mode: "batch", body: request.body, contentType: request.headers.get("Content-Type"),
 	});
 	return new Response(response.body, { status: response.status, headers: { "Content-Type": response.headers.get("Content-Type") ?? "application/json" } });
@@ -158,7 +168,7 @@ async function batch(request: Request, env: Env, label: string): Promise<Respons
 // Deepgram-compatible streaming route (Anarlog live). Audio frames pass through;
 // every non-interim message from Deepgram is also stored verbatim for agents.
 async function live(request: Request, env: Env, ctx: ExecutionContext, label: string): Promise<Response> {
-	const upstreamResponse = await requestDeepgram(env, label, new URL(request.url).searchParams, { mode: "live" });
+	const { response: upstreamResponse } = await requestDeepgram(env, label, new URL(request.url).searchParams, { mode: "live" });
 	const upstream = upstreamResponse.webSocket;
 	if (!upstream) return new Response(await upstreamResponse.text(), { status: upstreamResponse.status || 502 });
 	upstream.accept();

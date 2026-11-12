@@ -1,5 +1,81 @@
 # Kotoleaf speech gateway (Cloudflare Worker)
 
+## Contextual review (12 November increment)
+
+**Candidate, not deployed:** the canonical-owner review found no approved dedicated
+refinement binding. The maintainer's test URL was removed from deployment defaults.
+The model lane requires explicit `REFINEMENT_URL`, `REFINEMENT_MODEL` and
+`REFINEMENT_TOKEN`; the existing production ASR/learning service remains separate.
+See `INTEGRATION-2026-11-12.md` for the current gate and verified checks.
+
+The fast audio path remains Nova-3. It never waits for the text model and never
+silently replaces a person's name, punctuation, raw text, audio bytes or timestamps.
+The new review lane is a **candidate meeting-notes workflow**, not a validated
+replacement for listening to the original recording or for Gemini meeting capture.
+See [current research and evaluation gaps](RESEARCH-2026-11-12.md).
+
+Open `/review` using your existing recording/dictation token label. Stored live
+meetings appear there; dictation, batch and `store=false` streams retain their
+existing non-persistence behavior and do **not** appear automatically. Paste an
+authorized transcript to create a clearly marked text-only import with unknown
+audio timestamps. Text imports are not audio-quality tests. The existing mobile
+recording clients are not patched and do not receive replacement streamed text.
+
+For the server-configured `AUTO_REFINE_LABEL` only, new stored finals trigger a
+request-owned background refinement after approximately 30 seconds of new speech
+or 1,500 characters, with a 30-second automatic cooldown. End-of-stream requests
+flush the final tail. This is not a new cron/background service. Every model call
+is bounded to 32 chunks / 12,000 characters, plus at most two earlier context chunks,
+and 45 seconds. Sparse speech waits for more evidence or explicit refinement.
+Manual **Refine next window** and the optional page-open follow loop drain a large
+backlog in bounded windows. There is no guarantee of a 30-second displayed latency:
+model runtime is additional. Windows do not retroactively merge prior revisions.
+
+`REFINEMENT_URL`, `REFINEMENT_MODEL` and the private `REFINEMENT_TOKEN` must identify
+an operator-approved application gateway. No default endpoint or model is selected,
+and no provider OAuth is extracted or shipped to browsers. The proposed institutional
+integration is experimental; its own documentation requires a dedicated deployment
+and prohibits reusing maintainer credentials. No such Kotoleaf binding is installed.
+Missing configuration, timeout, refusal, truncation, malformed output or invalid
+source citations leave raw transcripts unchanged and show a failure, not fake notes.
+There is no fallback provider or automatic paid API retry. Single-flight is per
+meeting; failed attempts cool down for 30 seconds before retry. Interrupted jobs
+are recoverable on a subsequent request after 90 seconds. Stopping the browser
+follow loop does not stop your live client's recording or automatic server lane.
+
+The model reuses `backend/app/mind/{institution,grounding}.txt`, active explicitly
+confirmed vocabulary and a bounded private context entered in this scope. No
+Workspace/messages are harvested. Private context is sent to the configured model,
+not to Deepgram; Deepgram receives confirmed spellings only. Context edits affect
+future windows, not old immutable snapshots or an in-flight request.
+
+Original sources, cleaned proposals, bilingual discussion/decision/action/question
+notes and study candidates are separate. Every output covers known source IDs;
+notes/terms must quote exact raw excerpts. Mixed/unknown speakers cannot be merged;
+raw speaker numbers are never treated as verified identities. Structural citation
+checks do **not** prove entailment, correct translation or correct punctuation.
+All output starts as a draft, including punctuation-only changes. Accept/reject/undo
+changes the review decision, not the source or model result; changes are logged.
+The receipt download retains sources, timestamps, model, context snapshot and review
+history. Existing MCP/meeting readers can read derived results with explicit review
+status, but not the owner's private context/hint inventory.
+
+Confirm a candidate's spelling, reading and meaning to hand it to the **existing**
+learning store. Its evidence and revision pointer are retained with the card, and
+the next transcription uses the confirmed spelling as a hint. Again/Known/undo
+continue to work; there is no new parallel flashcard store or claim of FSRS. The
+existing 16-term/240-byte hint capacity also applies to these cards. Raw notes and
+rejected drafts are never auto-confirmed as personal vocabulary. Accepted windows
+are user-reviewed, not independently audio-validated facts.
+
+Weekly archive includes derived snapshots and review decisions alongside original
+provider messages, excluding private context/hint snapshots. Those snapshots are
+preserved separately and accessible only under the original owner label through
+`GET /review-data/<id>/archive-context`. Live meetings and running refinements are not archived. Learned
+card evidence persists independently; the complete older review UI is not yet
+archive-aware, so older full meetings require the existing authenticated archive
+download. Undo is not deletion; no new deletion or full-audio replay UI is supplied.
+
 One Worker, named `kotoleaf`, sits between your apps and Deepgram. It always transcribes
 with Nova-3 English/Japanese code-switching (`language=multi`, `language_hint=en`,
 `language_hint=ja`) and adds the keyterms in `glossary.txt`. It also stores live meeting
@@ -14,9 +90,15 @@ transcripts so agents can read them during the meeting.
 | `POST /mcp` | Agents (MCP over HTTP, stateless JSON) | Tools: `list_meetings`, `transcript`, `raw_messages` |
 | `GET /archive`, `/archive/<id>`, `POST /archive/run` | Older meetings | gzipped JSON lines in R2; `run` archives now instead of waiting for Sunday |
 | `GET /learn`, `/learn?demo=1` | Phone-friendly confirmed learning | Public shell; real data requires an existing access token. Demo is synthetic, browser-local, no ASR calls |
+| `GET /review`, `/review?demo=1` | Phone-friendly meeting review | Original sources, cleaned drafts, bilingual notes, accept/reject/undo and source-linked Japanese learning. Public shell only; demo is synthetic |
+| `GET /review-data`, `/review-data/<id>` | Private review space | Owner-label scoped; includes context and immutable source snapshots. Chat credential is denied |
+| `GET /review-data/<id>/archive-context` | Owner's archived private context | Owner-label checked against archive metadata; not exposed through general archive readers |
+| `POST /review-data/context`, `/review-data/import`, `/review-data/<id>/refine` | Context / text-only import / bounded refinement | Explicit authenticated writes; import UUID is idempotent; originals and unknown timestamps retained |
+| `PATCH /review-data/<id>/revisions/<uuid>`, `POST /review-data/<id>/learn` | Human review / learning | Reversible review decisions; candidate learning requires explicit confirmation and uses existing `/learning` store |
+| `GET /meetings/<id>/review`, MCP `meeting_review` | Existing meeting readers | Source-linked draft/accepted outputs; private context and personal hint snapshots omitted |
 | `GET/POST /learning`, `PATCH /learning/<id>`, `POST /learning/<id>/reviews` | Confirmed terms, review log and last dictation hint receipt | Scoped to the authenticated token **label**; chat-only token has no access |
 
-Every route except `/health`, `/learn` and its `/learn.js` asset needs `Authorization: Bearer <token>` or `Token <token>`.
+Every route except `/health`, `/learn`, `/review` and their JS assets needs `Authorization: Bearer <token>` or `Token <token>`.
 Tokens are the `ACCESS_TOKENS` secret, as comma-separated `label:token` pairs. The label is
 recorded as the meeting source. The local copy is `~/.config/kotoleaf/access-tokens`
 (mode 600). Never paste tokens into chat or commit them.
@@ -25,6 +107,9 @@ recorded as the meeting source. The local copy is `~/.config/kotoleaf/access-tok
 only `POST /v1/audio/transcriptions`: it cannot access meetings, archives, MCP or
 streaming routes. Provision a newly generated value directly into the Worker
 secret and the bridge's private token file; do not extract another app's token.
+`CHAT_LEARNING_LABEL` now explicitly selects an existing learning label for its
+**hint lookup only**. Removing that variable restores an isolated chat vocabulary.
+This never grants the chat credential read/write access to learning, context or notes.
 
 Storage: meetings stay in a SQLite Durable Object for `HOT_DAYS` (7). Every Sunday at 03:00 JST,
 older meetings are written to R2 as one gzipped JSON-lines file each (a metadata line,
@@ -57,6 +142,7 @@ npm ci
 npm test            # unit tests
 npm run test:e2e    # wrangler dev against a mock Deepgram; no credentials
 npm run check
+npm run test:review  # mock model + real local SQLite; no production API calls
 # Optional actual mobile UI test, with an existing Playwright Python environment:
 KOTOLEAF_BROWSER_PYTHON=/path/to/python-with-playwright npm run test:e2e
 # browser-learning.py uses the shared agents-md/tools/browser_session.py helper;
@@ -102,8 +188,10 @@ review, retaining the original confirmation, its timestamp and review history.
 These records are independent of meeting archival. There is no deletion UI yet.
 Names are scoped by token **label**, not by an individual user: sharing a label
 shares the learning space. Renaming a token label starts a different space.
-The separate chat credential remains transcription-only and inherits no other
-label's vocabulary. The FastAPI/Firestore learning pipeline is unchanged.
+The separate chat credential remains transcription-only; the explicit server-side
+`CHAT_LEARNING_LABEL` mapping now shares the chosen label's confirmed hints with it.
+The FastAPI/Firestore learning storage pipeline is unchanged. Both interpreter
+paths reuse the Mind institutional context and source-grounding instructions.
 
 API writes require UUIDv4 request IDs. Retry unchanged bodies with the same ID
 after a dropped response. A reused ID with different content returns 409; a late

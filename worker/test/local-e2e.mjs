@@ -305,7 +305,7 @@ try {
 	const rpc = async (method, params) =>
 		(await fetch(`${base}/mcp`, { method: "POST", headers: { ...auth, "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) })).json();
 	assert.equal((await rpc("initialize", { protocolVersion: "2025-06-18" })).result.serverInfo.name, "kotoleaf");
-	assert.deepEqual((await rpc("tools/list")).result.tools.map((t) => t.name), ["list_meetings", "transcript", "raw_messages"]);
+	assert.deepEqual((await rpc("tools/list")).result.tools.map((t) => t.name), ["meeting_review", "list_meetings", "transcript", "raw_messages"]);
 	const call = await rpc("tools/call", { name: "transcript", arguments: { language: "ja" } });
 	assert.match(call.result.content[0].text, /今日は meeting/);
 

@@ -9,7 +9,8 @@
 		"build": "wrangler deploy --dry-run --outdir dist",
 		"dev": "wrangler dev",
 		"deploy": "wrangler deploy",
-		"test:e2e": "node test/local-e2e.mjs"
+		"test:e2e": "node test/local-e2e.mjs",
+		"test:review": "node test/review-e2e.mjs"
 	},
 	"devDependencies": {
 		"@cloudflare/workers-types": "^5.20260801.1",

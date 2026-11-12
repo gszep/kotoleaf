@@ -105,10 +105,9 @@ SUMMARIZATION_TOOL = {
             "speaker_map": {
                 "type": "object",
                 "description": (
-                    "Mapping of raw Deepgram speaker IDs (as strings) to inferred "
-                    "speaker names. If two IDs belong to the same person, map both "
-                    'to the same name. Example: {"0": "Grisha", "1": "Tanaka-san", '
-                    '"2": "Grisha"}'
+                    "Mapping of raw Deepgram speaker IDs (as strings) to original "
+                    "labels or explicitly user-confirmed names. Do not infer "
+                    'identities or merge IDs. Example: {"0": "Speaker 0", "1": "Speaker 1"}'
                 ),
                 "additionalProperties": {"type": "string"},
             },

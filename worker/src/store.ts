@@ -3,6 +3,7 @@ import { dominantLanguage } from "./params";
 import { archiveCutoff, nextArchiveTime } from "./schedule";
 import { checkCapacity, type Correction, type CorrectionInput } from "./learning";
 import type { HintReceipt } from "./hint-receipt";
+import { ReviewStore } from "./review-store";
 
 // One SQLite-backed Durable Object instance ("main") holds every meeting.
 // Each non-interim Deepgram message is stored verbatim in `raw`; the other
@@ -28,6 +29,7 @@ export interface Meeting {
 
 export class Transcripts extends DurableObject<Env> {
 	private sql: SqlStorage;
+	private review: ReviewStore;
 
 	constructor(ctx: DurableObjectState, env: Env) {
 		super(ctx, env);
@@ -61,6 +63,33 @@ export class Transcripts extends DurableObject<Env> {
 		// Added after v1: comma-delimited set of word languages, e.g. ",en,ja,".
 		const columns = this.sql.exec("PRAGMA table_info(messages)").toArray().map((c) => c.name);
 		if (!columns.includes("languages")) this.sql.exec("ALTER TABLE messages ADD COLUMN languages TEXT");
+		this.review = new ReviewStore(this.sql, env, this, fn=>ctx.storage.transactionSync(fn));
+	}
+
+	context(owner: string) { return this.review.context(owner); }
+	setContext(owner: string, context: string) { return this.review.setContext(owner, context); }
+	reviewMeetings(owner: string) { return this.review.meetings(owner); }
+	reviewData(owner: string, id: string) { return this.review.data(owner, id); }
+	reviewRevision(owner: string, id: string, revision: string, review: string) { return this.review.decide(owner, id, revision, review); }
+	learnFromRevision(owner: string, id: string, revision: string, index: number, input: CorrectionInput) { return this.review.learn(owner, id, revision, index, input); }
+	async refineOwned(owner: string, id: string) { return this.review.owned(owner,id) ? this.review.refine(id,true,true) : {status:"not-found"}; }
+	async importText(owner: string, requestId: string, text: string) {
+		const id = `import-${requestId}`;
+		const existing = this.sql.exec("SELECT source FROM meetings WHERE id = ?", id).toArray()[0];
+		if (existing) {
+			const original = this.sql.exec("SELECT text FROM messages WHERE meeting_id = ? ORDER BY seq",id).toArray().map(l=>l.text).join("\n\n");
+			return existing.source === owner && original === text ? {status:200,id} : {status:409,error:"Import request id already used."};
+		}
+		const now = Date.now();
+		this.ctx.storage.transactionSync(()=>{
+			this.sql.exec("INSERT INTO meetings(id,source,started,ended) VALUES (?,?,?,?)",id,owner,now,now);
+			text.split("\n\n").forEach((part,index)=>{
+				const raw=JSON.stringify({type:"Results",is_final:true,origin:"user-pasted-text",channel:{alternatives:[{transcript:part}]}});
+				this.sql.exec("INSERT INTO messages(meeting_id,seq,received,type,text,raw) VALUES (?,?,?,'Results',?,?)",id,index+1,now,part,raw);
+			});
+		});
+		if ((await this.ctx.storage.getAlarm()) === null) await this.ctx.storage.setAlarm(nextArchiveTime(now));
+		return {status:201,id};
 	}
 
 	corrections(owner: string): Correction[] {
@@ -79,7 +108,7 @@ export class Transcripts extends DurableObject<Env> {
 		// One synchronous snapshot/RPC: displayed hints cannot disagree with the
 		// displayed confirmations because an undo landed between separate reads.
 		const corrections = this.corrections(owner);
-		return { corrections, keyterms: corrections.filter(c => c.active).map(c => c.term), last_hint_receipt: this.lastHintReceipt(owner) };
+		return { corrections, keyterms: corrections.filter(c => c.active).map(c => c.term), last_hint_receipt: this.lastHintReceipt(owner), sources: this.sql.exec("SELECT correction_id, meeting_id, revision, evidence FROM learning_sources WHERE owner = ?",owner).toArray() };
 	}
 
 	lastHintReceipt(owner: string): HintReceipt | null {
@@ -134,6 +163,7 @@ export class Transcripts extends DurableObject<Env> {
 
 	end(id: string): void {
 		this.sql.exec("UPDATE meetings SET ended = ? WHERE id = ? AND ended IS NULL", Date.now(), id);
+		this.ctx.waitUntil(this.review.refine(id, true));
 	}
 
 	append(id: string, raw: string): void {
@@ -160,12 +190,13 @@ export class Transcripts extends DurableObject<Env> {
 			typeof message?.start === "number" ? message.start : null,
 			typeof message?.start === "number" && typeof message?.duration === "number" ? message.start + message.duration : null,
 			Array.isArray(message?.channel_index) ? message.channel_index[0] : null,
-			speakers.length ? mode(speakers) : null,
+			new Set(speakers).size === 1 ? speakers[0] : null,
 			dominantLanguage(words) ?? alternative?.languages?.[0] ?? null,
 			wordLanguages.length ? `,${wordLanguages.join(",")},` : null,
 			alternative?.transcript ?? null,
 			raw,
 		);
+		this.ctx.waitUntil(this.review.refine(id, false));
 	}
 
 	meetings(limit = 20): Meeting[] {
@@ -212,11 +243,13 @@ export class Transcripts extends DurableObject<Env> {
 	async archiveOld(): Promise<string[]> {
 		const archived: string[] = [];
 		const cutoff = archiveCutoff(Date.now(), Number(this.env.HOT_DAYS || "7"));
-		const old = this.sql.exec("SELECT id, source, started, ended FROM meetings WHERE started < ?", cutoff).toArray() as unknown as Meeting[];
+		const old = this.sql.exec("SELECT id, source, started, ended FROM meetings WHERE started < ? AND ended IS NOT NULL AND NOT EXISTS (SELECT 1 FROM refinements r WHERE r.meeting_id = meetings.id AND r.state = 'running')", cutoff).toArray() as unknown as Meeting[];
 		for (const meeting of old) {
 			// Without an R2 binding nothing is deleted; meetings simply stay hot.
 			if (!this.env.ARCHIVE) break;
 			await this.archive(meeting);
+			this.sql.exec("DELETE FROM refinement_decisions WHERE revision IN (SELECT id FROM refinements WHERE meeting_id = ?)",meeting.id);
+			this.sql.exec("DELETE FROM refinements WHERE meeting_id = ?", meeting.id);
 			this.sql.exec("DELETE FROM messages WHERE meeting_id = ?", meeting.id);
 			this.sql.exec("DELETE FROM meetings WHERE id = ?", meeting.id);
 			archived.push(meeting.id);
@@ -226,6 +259,13 @@ export class Transcripts extends DurableObject<Env> {
 
 	private async archive(meeting: Meeting): Promise<void> {
 		const lines = [JSON.stringify({ meeting })];
+		const privateLines = [JSON.stringify({ meeting })];
+		for (const row of this.sql.exec("SELECT * FROM refinements WHERE meeting_id = ? ORDER BY created", meeting.id)) {
+			const { context, ...shared } = row;
+			lines.push(JSON.stringify({refinement:shared}));
+			privateLines.push(JSON.stringify({revision:row.id,context}));
+		}
+		for (const row of this.sql.exec("SELECT d.* FROM refinement_decisions d JOIN refinements r ON r.id = d.revision WHERE r.meeting_id = ? ORDER BY d.rowid",meeting.id)) lines.push(JSON.stringify({review_decision:row}));
 		for (const row of this.sql.exec("SELECT seq, received, raw FROM messages WHERE meeting_id = ? ORDER BY seq", meeting.id)) {
 			lines.push(`{"seq":${row.seq},"received":${row.received},"message":${row.raw}}`);
 		}
@@ -235,11 +275,14 @@ export class Transcripts extends DurableObject<Env> {
 			httpMetadata: { contentType: "application/x-ndjson", contentEncoding: "gzip" },
 			customMetadata: { source: meeting.source, started: String(meeting.started) },
 		});
+		// Keep private snapshots, but never place them in the general-reader archive.
+		// Both writes complete before archiveOld removes any hot database rows.
+		if (privateLines.length > 1) {
+			const privateBody = new Blob([privateLines.join("\n") + "\n"]).stream().pipeThrough(new CompressionStream("gzip"));
+			await this.env.ARCHIVE!.put(`review-private/${meeting.id}.jsonl.gz`, await new Response(privateBody).arrayBuffer(), {
+				httpMetadata: { contentType: "application/x-ndjson", contentEncoding: "gzip" },
+				customMetadata: { source: meeting.source },
+			});
+		}
 	}
-}
-
-function mode(values: number[]): number {
-	const counts = new Map<number, number>();
-	for (const v of values) counts.set(v, (counts.get(v) ?? 0) + 1);
-	return [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
 }

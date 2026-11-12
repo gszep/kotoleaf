@@ -5,7 +5,11 @@
 	"compatibility_date": "2026-10-01",
 	"workers_dev": true,
 	"version_metadata": { "binding": "CF_VERSION_METADATA" },
-	"vars": { "HOT_DAYS": "7", "DEEPGRAM_URL": "https://api.deepgram.com/v1/listen" },
+	"vars": {
+		"HOT_DAYS": "7", "DEEPGRAM_URL": "https://api.deepgram.com/v1/listen",
+		"CHAT_LEARNING_LABEL": "grisha-dictation",
+		"AUTO_REFINE_LABEL": "grisha-dictation"
+	},
 	"rules": [{ "type": "Text", "globs": ["**/*.txt", "**/*.html"], "fallthrough": true }],
 	"durable_objects": { "bindings": [{ "name": "TRANSCRIPTS", "class_name": "Transcripts" }] },
 	"r2_buckets": [{ "binding": "ARCHIVE", "bucket_name": "kotoleaf-transcripts" }],

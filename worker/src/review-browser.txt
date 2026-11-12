@@ -1,0 +1,68 @@
+const $ = id => document.getElementById(id);
+const demo = new URLSearchParams(location.search).get('demo') === '1';
+let token='', selected=new URLSearchParams(location.search).get('meeting')||'', current=null, polling=null, busy=false, epoch=0;
+const status = text => $('status').textContent=text;
+function el(tag,text,parent) {const n=document.createElement(tag); if(text!==undefined)n.textContent=text; if(parent)parent.append(n); return n;}
+async function api(path='',method='GET',body) {
+ const response=await fetch('/review-data'+path,{method,headers:{Authorization:'Bearer '+token,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,cache:'no-store',signal:AbortSignal.timeout(path.endsWith('/refine')?55000:15000)});
+ const result=await response.json(); if(!response.ok)throw Error(result.error||'Request failed'); return result;
+}
+function run(fn){return async()=>{if(busy)return;busy=true;const generation=epoch;try{await fn(generation);}catch(e){if(epoch===generation)status(e.message);}finally{busy=false;}};}
+function citations(evidence,parent){for(const c of evidence){const a=el('a',`Source ${c.seq}: “${c.quote}”`,parent);a.href='#source-'+c.seq;el('br',undefined,parent);}}
+function render(data){
+ current=data;$('result').replaceChildren();$('export').disabled=false;
+ const root=$('result');el('h2',data.meeting.id.startsWith('import-')?'Text-only import':'Meeting review',root);
+ el('p',`${data.meeting.ended?'Ended':'Live'} · ${data.lines.length} original source chunks`,root);
+ if(!data.configured)el('p','Model connection unavailable. Original sources remain readable.',root).className='warning';
+ for(const r of data.revisions){
+  const card=el('article',undefined,root);el('span',`${r.state} · ${r.review}`,card).className='pill';
+  el('p',`Sources ${r.since_seq+1}–${r.until_seq} · ${r.model||'model pending'}${r.elapsed_ms?' · '+(r.elapsed_ms/1000).toFixed(1)+'s':''}`,card).className='muted';
+  if(!r.result){el('p',r.error||'Contextual refinement in progress. Raw transcription is not delayed.',card);continue;}
+  el('h3','Cleaned transcript · '+r.review,card);
+  for(const c of r.result.cleaned){el('p',c.text,card);el('small',c.change==='wording'?'Wording changed — check carefully':'Formatting proposal — check sentence meaning',card);citations(c.sources.map(seq=>({seq,quote:data.lines.find(l=>l.seq===seq)?.text||'source'})),card);}
+  el('h3','Bilingual notes · '+r.review,card);
+  for(const n of r.result.notes){el('span',n.kind,card).className='pill';el('p',n.en,card);el('p',n.ja,card).lang='ja';citations(n.evidence,card);}
+  if(!r.result.notes.length)el('p','No supported note proposed.',card);
+  const detail=el('details',undefined,card);el('summary','Japanese learning candidates — confirm before saving',detail);
+  r.result.terms.forEach((t,index)=>{
+   const item=el('section',undefined,detail);el('h4',`${t.term} · ${t.reading}`,item);el('p',t.meaning,item);citations(t.evidence,item);
+   const term=el('input',undefined,item);term.value=t.term;term.setAttribute('aria-label','Confirmed spelling');
+   const reading=el('input',undefined,item);reading.value=t.reading;reading.setAttribute('aria-label','Reading');
+   const meaning=el('input',undefined,item);meaning.value=t.meaning;meaning.setAttribute('aria-label','Meaning');
+   const label=el('label',undefined,item),check=el('input',undefined,label);check.type='checkbox';check.style.width='auto';label.append(' I checked spelling, reading and meaning');
+   const save=el('button','Save to existing learning space',item);const requestId=crypto.randomUUID();
+   save.onclick=run(async(generation)=>{if(!check.checked)throw Error('Check the candidate before confirming.');if(demo){status('Demo only: no learning record saved. Open /learn?demo=1 to try review.');return;}
+    await api('/'+selected+'/learn','POST',{id:requestId,confirmed:true,term:term.value,reading:reading.value,meaning:meaning.value,original:'',revision:r.id,index});if(epoch!==generation)return;save.disabled=true;status('Saved with source provenance. Available in Confirmed vocabulary & review.');});
+  });
+  for(const [value,label] of [['accepted','Accept this window'],['rejected','Reject this window'],['draft','Undo decision']]){
+   const button=el('button',label,card);button.onclick=run(async(generation)=>{if(demo){r.review=value;render(data);}else{await api('/'+selected+'/revisions/'+r.id,'PATCH',{review:value});if(epoch===generation)await load(generation);}status('Review decision saved; original source unchanged.');});
+  }
+  const provenance=el('details',undefined,card);el('summary','Context and vocabulary snapshot used',provenance);el('pre',JSON.stringify(r.context,null,2),provenance);
+ }
+ const raw=el('section',undefined,root);el('h2','Original ASR / imported text',raw);
+ el('p','Source chunks are transport segments, not necessarily sentences. Unknown/mixed speaker labels are not identities.',raw).className='muted';
+ for(const l of data.lines){const p=el('article',undefined,raw);p.id='source-'+l.seq;p.className='source';el('small',`Source ${l.seq} · ${l.start===null?'time unknown':l.start.toFixed(2)+'–'+(l.end??l.start).toFixed(2)+'s'} · ${l.speaker===null?'speaker unknown/mixed':'speaker '+l.speaker}`,p);el('p',l.text,p);}
+}
+async function load(generation=epoch){if(!selected)return;const data=demo?demoData:await api('/'+selected);if(generation!==epoch)return;render(data);status('Original and derived layers loaded. Drafts are not verified meeting minutes.');}
+async function open(generation=epoch){const data=demo?{scope:'synthetic example',context:'Fictional bilingual lab',meetings:[demoData.meeting]}:await api();if(generation!==epoch)return;
+ $('connect').hidden=true;$('workspace').hidden=false;$('scope').textContent='Private scope: '+data.scope;$('context').value=data.context;
+ $('meetings').replaceChildren();for(const m of data.meetings){const option=el('option',m.id,$('meetings'));option.value=m.id;}
+ if(!data.meetings.some(m=>m.id===selected))selected=data.meetings[0]?.id||'';$('meetings').value=selected;
+ if(selected)await load(generation);else status('No stored meetings in this scope. Start your existing live client or import authorized text.');
+}
+$('unlock').onclick=run(async(g)=>{token=$('token').value.trim();$('token').value='';await open(g);});
+$('meetings').onchange=run(async(g)=>{selected=$('meetings').value;await load(g);});
+$('refresh').onclick=run(open);
+$('refine').onclick=run(async(g)=>{if(!selected)return;if(!demo){status('Refining a bounded window; original ASR stays available.');const r=await api('/'+selected+'/refine','POST',{});if(epoch!==g)return;await load(g);status('Refinement: '+r.status);}else{await load(g);status('Synthetic replay only — no model or audio call.');}});
+$('save-context').onclick=run(async(g)=>{if(!demo)await api('/context','POST',{context:$('context').value});if(epoch===g)status('Context saved for future windows; previous snapshots unchanged.');});
+let importId=null,importText=null;
+$('import').onclick=run(async(g)=>{if(demo){status('Imports are disabled in the public demo.');return;}const text=$('import-text').value.trim();if(!text)throw Error('Paste a transcript first.');if(text!==importText){importId=crypto.randomUUID();importText=text;}
+  const r=await api('/import','POST',{id:importId,text});if(epoch!==g)return;selected=r.id;$('import-text').value='';importId=null;importText=null;await open(g);status('Original stored. Existing authorized meeting readers can read the transcript. Use Refine next window.');});
+$('follow').onchange=()=>{clearInterval(polling);polling=null;if($('follow').checked)polling=setInterval(run(async(g)=>{if(!selected||document.hidden)return;if(!demo)await api('/'+selected+'/refine','POST',{});if(epoch===g)await load(g);}),30000);};
+$('lock').onclick=()=>{epoch++;clearInterval(polling);polling=null;token='';current=null;selected='';$('follow').checked=false;$('workspace').hidden=true;$('connect').hidden=false;$('result').replaceChildren();$('context').value='';$('import-text').value='';status('Locked. Token and rendered data cleared.');};
+$('export').onclick=()=>{if(!current)return;const blob=new Blob([JSON.stringify({exported:new Date().toISOString(),warning:'Draft model output; original sources preserved. Not audio-validated.',...current},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='kotoleaf-review-'+selected+'.json';a.click();URL.revokeObjectURL(url);};
+window.addEventListener('pagehide',()=>{clearInterval(polling);token='';});
+const demoData={configured:true,meeting:{id:'import-synthetic-example',started:0,ended:1,source:'synthetic'},lines:[
+ {seq:1,start:null,end:null,speaker:0,channel:0,text:'We might invite Mira. To the workshop but we have not committed to Friday.'},
+ {seq:2,start:null,end:null,speaker:1,channel:0,text:'稟議はまだ通っていません。Visaで払うかもしれません。'}],revisions:[{id:'synthetic',since_seq:0,until_seq:2,state:'ready',review:'draft',model:'synthetic replay (no model call)',context:{context:'Fictional bilingual lab'},result:{cleaned:[{sources:[1],text:'We might invite Mira to the workshop, but we have not committed to Friday.',change:'formatting'},{sources:[2],text:'稟議はまだ通っていません。Visaで払うかもしれません。',change:'formatting'}],notes:[{kind:'discussion',en:'A workshop invitation is tentative; Friday is not committed. Approval is still pending; Visa payment is only a possibility.',ja:'招待は検討中で、金曜日には確約していません。稟議は未承認で、Visaでの支払いも可能性の段階です。',evidence:[{seq:1,quote:'we have not committed to Friday'},{seq:2,quote:'稟議はまだ通っていません。Visaで払うかもしれません。'}]}],terms:[{term:'稟議',reading:'りんぎ',meaning:'Internal approval process',evidence:[{seq:2,quote:'稟議はまだ通っていません。'}]}]}}]};
+if(demo)run(open)();

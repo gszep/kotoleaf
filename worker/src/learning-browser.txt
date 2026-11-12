@@ -80,6 +80,14 @@ async function refresh() {
     card.append(node("h3", c.term, "term"));
     card.append(node("p", "User confirmed · " + new Date(c.created).toLocaleString(), "muted"));
     if (c.original) card.append(node("p", "Recognised spelling: " + c.original, "detail"));
+    const source = (data.sources || []).find(s => s.correction_id === c.id);
+    if (source) {
+      const link = node("a", "Meeting source (original / draft notes)");
+      link.href = "/review?meeting=" + encodeURIComponent(source.meeting_id);
+      card.append(link);
+      for (const citation of JSON.parse(source.evidence)) card.append(node("p", "Source " + citation.seq + ": “" + citation.quote + "”", "detail"));
+      card.append(node("p", "Evidence retained with this card; older full meetings move to the authenticated archive.", "muted"));
+    }
     if (!c.active) {
       card.append(node("p", "Undone · " + new Date(c.retracted).toLocaleString() + ". No longer a hint or review card."));
       $("history").append(card); continue;

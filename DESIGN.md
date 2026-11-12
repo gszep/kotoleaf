@@ -19,11 +19,14 @@ API contracts, limits and recovery live in [worker/README](worker/README.md).
 
 | Component | Implemented path | Deployment / persistence |
 |---|---|---|
-| Speech gateway (`worker/`) | Dictation, batch and live audio → Deepgram Nova-3 EN/JA → original provider result. Confirmed spellings become next-request hints. | Deployed Cloudflare Worker; SQLite Durable Object plus R2 meeting archive. |
+| Speech gateway (`worker/`) | Dictation, batch and live audio → Deepgram Nova-3 EN/JA → original provider result. Confirmed spellings become next-request hints. Separate contextual review produces source-linked cleaned drafts, notes and learning candidates. | Deployed Cloudflare Worker; SQLite Durable Object plus R2 meeting archive; existing institutional model gateway. |
 | Interpreter (`backend/`, `frontend/`) | SvelteKit → FastAPI WebSocket → Deepgram → Claude bilingual summaries/clarification detection → formatted display and encounters. | Docker Compose development stack with Firestore emulator; no production GCP deployment established by this document. |
 
-These are **not** one integrated learning pipeline. The interpreter's Deepgram
-client calls Deepgram directly; it does not inherit the Worker's saved spellings.
+These still have distinct audio/storage pipelines. They now share the Mind
+institutional/source-grounding prompt; the gateway's deployed review lane hands
+explicitly confirmed, source-linked candidates to its existing learning store.
+The interpreter's Deepgram client calls Deepgram directly; it does not inherit the
+Worker's saved spellings.
 Do not remove either client as duplicate transport or assume their credentials,
 storage and retention are interchangeable.
 
@@ -53,6 +56,13 @@ actual local workerd/SQLite across restarts and reconnects.
   or audio. Receipt scope, matching semantics and failure behavior live in the runbook.
 - The existing weekly archive moves old meetings to R2 before removing hot rows;
   without R2, they remain hot. Confirmation/review history is not meeting archive data.
+- `/review` keeps raw source snapshots, contextual transcript proposals and bilingual
+  notes separate. Every window starts as a draft, with reversible review decisions.
+  Confirmed candidates use the existing learning store, with source evidence retained.
+  `review-store.ts` bounds model work and persists revisions; `refinement.ts` validates
+  source coverage/citations. The runbook defines automatic scope and privacy boundaries.
+- The explicitly configured chat-to-learning-label mapping supplies hints only;
+  it does not expand the chat token's transcription-only authority.
 
 ## Interpreter development path
 

@@ -4,6 +4,8 @@ import type { Line, Meeting } from "./store";
 import { correctionInput, LearningError, uuid } from "./learning";
 import learningPage from "./learning.html";
 import learningScript from "./learning-browser.txt";
+import reviewPage from "./review.html";
+import reviewScript from "./review-browser.txt";
 import { hintReceipt } from "./hint-receipt";
 
 export { Transcripts } from "./store";
@@ -16,9 +18,10 @@ export default {
 		if (url.pathname === "/health") return Response.json({ ok: true, version: env.CF_VERSION_METADATA.id }, { headers: { "Cache-Control": "no-store" } });
 		// Public shell/demo contains no user data. Private data still requires the
 		// existing access token, supplied in a header, never in URLs or storage.
-		if (request.method === "GET" && ["/learn", "/learn.js"].includes(url.pathname)) {
-			return new Response(url.pathname === "/learn" ? learningPage : learningScript, { headers: {
-				"Content-Type": url.pathname === "/learn" ? "text/html; charset=utf-8" : "text/javascript; charset=utf-8",
+		if (request.method === "GET" && ["/learn", "/learn.js", "/review", "/review.js"].includes(url.pathname)) {
+			const asset = ({"/learn":learningPage,"/learn.js":learningScript,"/review":reviewPage,"/review.js":reviewScript})[url.pathname]!;
+			return new Response(asset, { headers: {
+				"Content-Type": url.pathname.endsWith(".js") ? "text/javascript; charset=utf-8" : "text/html; charset=utf-8",
 				"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer",
 				"Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
 				"Permissions-Policy": "microphone=(), camera=()",
@@ -29,6 +32,7 @@ export default {
 		if (!label) return Response.json({ error: "unauthorized" }, { status: 401 });
 
 		try {
+			if (url.pathname === "/review-data" || url.pathname.startsWith("/review-data/")) return await review(request, url, env, label);
 			if (url.pathname === "/learning" || url.pathname.startsWith("/learning/")) return await learning(request, url, env, label);
 			if (url.pathname.endsWith("/audio/transcriptions") && request.method === "POST") return await openaiTranscription(request, env, label);
 			if (url.pathname === "/v1/listen") {
@@ -114,11 +118,52 @@ async function learning(request: Request, url: URL, env: Env, label: string): Pr
 	return reply({ error: "not found" }, 404);
 }
 
+async function review(request: Request, url: URL, env: Env, owner: string): Promise<Response> {
+	const db = store(env), parts = url.pathname.split("/").filter(Boolean).slice(1);
+	const reply = (data: unknown, status = 200) => Response.json(data, {status,headers:{"Cache-Control":"no-store"}});
+	if (request.method === "GET") {
+		if (parts.length === 2 && parts[1] === "archive-context") {
+			const object = await env.ARCHIVE?.get(`review-private/${parts[0]}.jsonl.gz`);
+			if (!object || object.customMetadata?.source !== owner) return reply({error:"Private review archive not found."},404);
+			return new Response(object.body,{headers:{"Content-Type":"application/gzip","Cache-Control":"no-store"}});
+		}
+		if (!parts.length) return reply({scope:owner,context:await db.context(owner),meetings:await db.reviewMeetings(owner)});
+		if (parts.length === 1) { const data=await db.reviewData(owner,parts[0]); return reply(data ?? {error:"Meeting not found."}, data ? 200 : 404); }
+		return reply({error:"not found"},404);
+	}
+	if (!["POST","PATCH"].includes(request.method)) return reply({error:"method not allowed"},405);
+	const reader=request.body?.getReader(); let bytes=0,body=""; const decoder=new TextDecoder();
+	if(reader)while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>50000){await reader.cancel();return reply({error:"Request too large."},413);}body+=decoder.decode(value,{stream:true});}
+	body+=decoder.decode();
+	let input:any;try{input=JSON.parse(body);}catch{return reply({error:"Invalid JSON."},400);}
+	if (parts[0] === "context" && parts.length === 1 && request.method === "POST") {
+		if(typeof input?.context !== "string" || input.context.length>2000) return reply({error:"Context must be text, at most 2000 characters."},400);
+		await db.setContext(owner,input.context);return reply({ok:true});
+	}
+	if(parts[0] === "import" && parts.length === 1 && request.method === "POST"){
+		if(typeof input?.text !== "string" || !input.text.trim() || input.text.length>12000) return reply({error:"Import 1–12000 characters."},400);
+		const result=await db.importText(owner,uuid(input.id),input.text);return reply(result,result.status);
+	}
+	if(parts.length === 2 && parts[1] === "refine" && request.method === "POST"){
+		const result=await db.refineOwned(owner,parts[0]);return reply(result,result.status==="not-found"?404:200);
+	}
+	if(parts.length === 3 && parts[1] === "revisions" && request.method === "PATCH"){
+		if(!["accepted","rejected","draft"].includes(input?.review)) return reply({error:"Invalid review decision."},400);
+		const found=await db.reviewRevision(owner,parts[0],uuid(parts[2]),input.review);return reply(found?{ok:true}:{error:"Revision not found."},found?200:404);
+	}
+	if(parts.length === 2 && parts[1] === "learn" && request.method === "POST"){
+		if(!Number.isInteger(input?.index)||input.index<0)return reply({error:"Invalid learning candidate."},400);
+		const result=await db.learnFromRevision(owner,parts[0],uuid(input.revision),input.index,correctionInput(input));return reply(result,result.status);
+	}
+	return reply({error:"not found"},404);
+}
+
 async function requestDeepgram(env: Env, label: string, client: URLSearchParams,
 	input: { mode: "live" } | { mode: "batch"; body: BodyInit | null; contentType: string | null }) {
 	// Fail visibly before opening upstream if learning storage is unavailable.
 	// A reconnect/new request takes a fresh snapshot; no mid-stream rewriting.
-	const personalTerms = await store(env).learningTerms(label);
+	const owner = label === "opencode-chat" ? (env.CHAT_LEARNING_LABEL || label) : label;
+	const personalTerms = await store(env).learningTerms(owner);
 	const terms = [...personalTerms, ...glossary];
 	const query = deepgramQuery(client, terms, input.mode);
 	// Client credentials/headers never cross this one upstream boundary.
@@ -258,6 +303,16 @@ async function readRaw(env: Env, args: { meeting_id?: string; since?: number; li
 	return rows.map((row) => `${row.seq}\t${row.raw}`).join("\n") || "no new messages";
 }
 
+async function readReview(env: Env, id?: string) {
+	// Same read boundary as existing transcript/raw routes. Do not expose the
+	// owner's private context or whole vocabulary to general meeting readers.
+	const meeting = await resolveMeeting(env, id);
+	if (!meeting) return {error:"no meetings recorded"};
+	const data = await store(env).reviewData(meeting.source, meeting.id);
+	return {meeting, warning:"Model output is a draft unless review=accepted. Source citations are not semantic validation. No original audio is retained by this gateway.",
+		revisions: data?.revisions.map(({id,state,review,created,completed,model,elapsed_ms,sources,result,error})=>({id,state,review,created,completed,model,elapsed_ms,sources,result,error})) ?? []};
+}
+
 // GET /meetings, /meetings/<id|latest>/transcript?since=&minutes=&language=, /meetings/<id|latest>/raw?since=&limit=
 async function meetings(url: URL, env: Env): Promise<Response> {
 	const parts = url.pathname.split("/").filter(Boolean);
@@ -268,6 +323,7 @@ async function meetings(url: URL, env: Env): Promise<Response> {
 		return new Response(await readTranscript(env, { meeting_id: id, since: number("since"), minutes: number("minutes"), language: url.searchParams.get("language") ?? undefined }));
 	}
 	if (view === "raw") return new Response(await readRaw(env, { meeting_id: id, since: number("since"), limit: number("limit") }));
+	if (view === "review") return Response.json(await readReview(env,id),{headers:{"Cache-Control":"no-store"}});
 	return Response.json({ error: "not found" }, { status: 404 });
 }
 
@@ -289,6 +345,11 @@ async function archive(request: Request, url: URL, env: Env): Promise<Response> 
 // ---- MCP (stateless streamable HTTP, JSON responses) ---------------------
 
 const TOOLS = [
+	{
+		name: "meeting_review",
+		description: "Read source-linked cleaned transcript proposals, bilingual notes and learning candidates. Raw source snapshots and review status are separate. Output remains unverified draft unless explicitly accepted; acceptance is not an audio accuracy guarantee. Never treat model notes as verbatim speech. Private contextual hints are omitted.",
+		inputSchema: {type:"object",properties:{meeting_id:{type:"string"}}},
+	},
 	{
 		name: "list_meetings",
 		description: "List meetings from roughly the last one to two weeks (newest first), with whether each is still live. Older meetings are archived; download them from GET /archive/<id>.",
@@ -335,7 +396,9 @@ async function mcp(request: Request, env: Env): Promise<Response> {
 			const args = message.params?.arguments ?? {};
 			const name = message.params?.name;
 			const text =
-				name === "list_meetings"
+				name === "meeting_review"
+					? JSON.stringify(await readReview(env,args.meeting_id))
+				: name === "list_meetings"
 					? JSON.stringify(await store(env).meetings(args.limit ?? 20))
 					: name === "transcript"
 						? await readTranscript(env, args)

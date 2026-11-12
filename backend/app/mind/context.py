@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from app.models.session import Register
 
 REGISTER_INSTRUCTIONS = {
@@ -14,13 +16,8 @@ REGISTER_INSTRUCTIONS = {
     ),
 }
 
-INSTITUTIONAL_CONTEXT = (
-    "You are the interpreter for ChibaTech, a bilingual English/Japanese organisation. "
-    "ChibaTech conducts business in both languages and team members frequently "
-    "code-switch between English and Japanese within conversations.\n\n"
-    "Glossary of ChibaTech-specific terms:\n"
-    "(Phase 1: minimal glossary — add terms here as needed)\n"
-)
+INSTITUTIONAL_CONTEXT = Path(__file__).with_name("institution.txt").read_text()
+GROUNDING = Path(__file__).with_name("grounding.txt").read_text()
 
 SYSTEM_PROMPT_TEMPLATE = """\
 You are Kotoleaf, a bilingual EN-JA interpreter for a live conversation. \
@@ -49,13 +46,9 @@ You produce rolling summaries that participants glance at — a safety net, not 
 5. Detect clarification moments: when a speaker asks for repetition, meaning, or clarification. \
 Report the likely confusing term with its reading, meaning, context sentence, and your confidence \
 (0-1) that this is genuine confusion vs conversational hedging.
-6. The transcript may have speaker attribution errors. Use conversational context to infer \
-the most likely speaker for each utterance.
-7. Return a speaker_map object mapping raw speaker IDs ("0", "1", ...) to your best-guess \
-display names. Infer names from self-introductions, how others address them, or contextual cues. \
-If you cannot infer a name, use the original label (e.g. "Speaker 0"). \
-If two IDs clearly refer to the same person (diarization error), map both IDs to the same name. \
-Names marked with * are user-confirmed — preserve them exactly (without the *).
+6. Preserve raw speaker IDs; do not infer identities or merge diarization clusters.
+7. Return a speaker_map using original labels (e.g. "Speaker 0") unless the provided \
+map contains a user-confirmed name marked with *. Preserve confirmed names without the *.
 
 {speaker_context}\
 You MUST respond using the produce_summary tool.\
@@ -76,7 +69,7 @@ def build_system_prompt(
     else:
         speaker_context = ""
 
-    return SYSTEM_PROMPT_TEMPLATE.format(
+    return GROUNDING + "\n\n" + SYSTEM_PROMPT_TEMPLATE.format(
         register_instruction=REGISTER_INSTRUCTIONS[register],
         institutional_context=INSTITUTIONAL_CONTEXT,
         meeting_context=meeting_context or "No additional meeting context provided.",

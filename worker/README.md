@@ -32,12 +32,18 @@ it cannot read/write learning, meetings, archives or MCP, and shares no other
 label's vocabulary. Never put credentials in browser code, URLs, logs or Git.
 Inspect secret names first; use the authorized provisioning path rather than
 extracting another app's token. `DEEPGRAM_API_KEY` is server-side.
+Its existing source is GCP Secret Manager project `kotoleaf`, secret `deepgram-api-key`;
+that reference is not a claim of automatic runtime secret injection.
 
 **Clients:** use the origin plus `/v1` as the OpenAI-compatible base URL and
 `nova-3` as model (avoid `gpt-4o-*`, which makes Paseo request logprobs). Anarlog's
 custom provider uses the origin and its privately supplied gateway credential.
 Agents use `/mcp` with the existing private Authorization-header binding. Gateway
 tokens are not Deepgram keys. Client/account compatibility needs its own live check.
+For Paseo's environment-based configuration, both `PASEO_DICTATION_STT_PROVIDER`
+and `PASEO_VOICE_STT_PROVIDER` are `openai` (protocol, not engine).
+`OPENAI_STT_BASE_URL`, privately supplied `OPENAI_STT_API_KEY` and `STT_MODEL`
+carry the base URL, gateway token and `nova-3` model respectively.
 
 ## Storage and reading
 

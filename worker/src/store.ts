@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { dominantLanguage } from "./params";
+import { dominantLanguage, mostFrequent } from "./params";
 import { archiveCutoff, nextArchiveTime } from "./schedule";
 import { checkCapacity, type Correction, type CorrectionInput } from "./learning";
 import type { HintReceipt } from "./hint-receipt";
@@ -160,7 +160,7 @@ export class Transcripts extends DurableObject<Env> {
 			typeof message?.start === "number" ? message.start : null,
 			typeof message?.start === "number" && typeof message?.duration === "number" ? message.start + message.duration : null,
 			Array.isArray(message?.channel_index) ? message.channel_index[0] : null,
-			speakers.length ? mode(speakers) : null,
+			mostFrequent(speakers) ?? null,
 			dominantLanguage(words) ?? alternative?.languages?.[0] ?? null,
 			wordLanguages.length ? `,${wordLanguages.join(",")},` : null,
 			alternative?.transcript ?? null,
@@ -236,10 +236,4 @@ export class Transcripts extends DurableObject<Env> {
 			customMetadata: { source: meeting.source, started: String(meeting.started) },
 		});
 	}
-}
-
-function mode(values: number[]): number {
-	const counts = new Map<number, number>();
-	for (const v of values) counts.set(v, (counts.get(v) ?? 0) + 1);
-	return [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
 }

@@ -75,6 +75,11 @@ audio or paid model calls just to validate a change; use synthetic fixtures.
 
 ## Deferred, not implemented guarantees
 
+Contextual text-refiner comparisons are research-only; no new connector or paid
+benchmark is enabled by this architecture. Deepgram remains the baseline. Prior
+10–30-second context is not a waiting period; near-real-time patch latency remains
+a proposed target, not measured deployed performance.
+
 FSRS scheduling/import, proficiency/growth estimates, automated institutional
 glossary ingestion, meeting materials/cultural briefings, relationship-register
 learning, configurable full-audio retention, Meet bots and multi-device scaling

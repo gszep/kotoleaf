@@ -1,6 +1,5 @@
-// Deepgram query construction shared by every route. Kotoleaf only serves
-// English/Japanese code-switching, so language selection is fixed here and
-// whatever the client asked for is replaced.
+// Shared EN/JA-preferred multilingual query. Hints are not language restrictions;
+// client model/language choices are replaced by this gateway's existing policy.
 
 export const LANGUAGE_HINTS = ["en", "ja"] as const;
 export const MODEL = "nova-3";
@@ -54,16 +53,18 @@ export function deepgramQuery(client: URLSearchParams, glossary: string[], mode:
 	return out;
 }
 
-// Most frequent per-word language in a Deepgram alternative, for compact listings.
-export function dominantLanguage(words: Array<{ language?: string }> | undefined): string | undefined {
-	const counts = new Map<string, number>();
-	for (const word of words ?? []) {
-		if (word.language) counts.set(word.language, (counts.get(word.language) ?? 0) + 1);
-	}
-	let best: string | undefined;
+// Derived listing labels only. First occurrence wins a final-count tie.
+export function mostFrequent<T>(values: Iterable<T>): T | undefined {
+	const counts = new Map<T, number>();
+	for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1);
+	let best: T | undefined;
 	let bestCount = 0;
-	for (const [language, count] of counts) {
-		if (count > bestCount) [best, bestCount] = [language, count];
+	for (const [value, count] of counts) {
+		if (count > bestCount) [best, bestCount] = [value, count];
 	}
 	return best;
+}
+
+export function dominantLanguage(words: Array<{ language?: string }> | undefined): string | undefined {
+	return mostFrequent((words ?? []).map(word => word.language).filter((value): value is string => Boolean(value)));
 }

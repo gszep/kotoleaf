@@ -1,3 +1,7 @@
+**Current deployment:** see [the Cloudflare Worker guide](worker/README.md) for
+the speech gateway, confirmed vocabulary and hint receipts. The separate
+FastAPI/Svelte prototype and deferred work are described in [DESIGN.md](DESIGN.md).
+
 <table width="830">
 <tr><td width="50%">
 <h1 align="center">Kotoleaf</h1>

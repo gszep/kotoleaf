@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { deepgramQuery, dominantLanguage, MAX_KEYTERMS, parseGlossary } from "../src/params.ts";
+import { deepgramQuery, dominantLanguage, mostFrequent, MAX_KEYTERMS, parseGlossary } from "../src/params.ts";
 
 test("forces nova-3 EN/JA code-switching and keeps audio parameters", () => {
 	const client = new URLSearchParams("model=nova-2&language=en&detect_language=true&encoding=linear16&sample_rate=16000&channels=2&multichannel=true&diarize=true");
@@ -37,6 +37,16 @@ test("glossary parsing ignores comments and blanks", () => {
 test("dominant language", () => {
 	assert.equal(dominantLanguage([{ language: "ja" }, { language: "en" }, { language: "ja" }]), "ja");
 	assert.equal(dominantLanguage([]), undefined);
+});
+
+test("derived language and speaker labels preserve first-observed final-count ties", () => {
+	// A streaming maximum would incorrectly choose the second value in this case.
+	assert.equal(mostFrequent([0, 1, 1, 0]), 0);
+	assert.equal(mostFrequent([2, 1, 1, 2]), 2);
+	assert.equal(mostFrequent([0, 0, 1]), 0);
+	assert.equal(mostFrequent<number>([]), undefined);
+	assert.equal(dominantLanguage([{language:"ja"},{language:"en"},{language:"en"},{language:"ja"}]), "ja");
+	assert.equal(dominantLanguage([{}, {language:""}, {language:"ja"}]), "ja");
 });
 
 import { archiveCutoff, nextArchiveTime } from "../src/schedule.ts";

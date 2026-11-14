@@ -39,20 +39,16 @@ Its explicit demo is browser-local and makes no private API or model calls; it
 does not demonstrate production persistence. The mock E2E suite separately tests
 actual local workerd/SQLite across restarts and reconnects.
 
-- Confirmations retain the recognised spelling, checked spelling, reading, note
-  and timestamp. Only the checked spelling is sent upstream as a hint.
-- Review judgements are appended. Undo disables future personal hints/review
-  without erasing provenance; an old retried save cannot reactivate an undone term.
-- Token labels define sharing scope, not individual people. The chat-only token
-  retains its transcription-only access. No guessed correction is auto-confirmed.
-- A new request/reconnect reloads hints; an already-open stream keeps its snapshot.
-  Original provider messages/audio are not rewritten by learning operations.
-- Persisted live sessions store non-interim messages. `store=false` streams and
-  batch/dictation results are not stored as meetings. Saved learning is separate;
-  successful dictation retains one terms-only hint receipt per label, not its text
-  or audio. Receipt scope, matching semantics and failure behavior live in the runbook.
-- The existing weekly archive moves old meetings to R2 before removing hot rows;
-  without R2, they remain hot. Confirmation/review history is not meeting archive data.
+The gateway keeps three distinct records: original provider messages, label-scoped
+confirmed spellings/reviews with persistent undo, and one terms-only dictation
+receipt per label. Only active confirmed spellings become next-request hints;
+open streams retain their snapshot. Raw speech is never rewritten and guesses
+are not confirmations. Confirmation writes read active terms and the exact retry
+record; historical review statistics are assembled only for learning reads.
+
+The [Worker runbook](worker/README.md) is the single contract for route-specific
+retention, sharing/token boundaries, hint limits, idempotency/undo and archival.
+Those policies keep meeting history separate from persistent learning provenance.
 
 ## Interpreter development path
 

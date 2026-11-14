@@ -98,13 +98,17 @@ export class Transcripts extends DurableObject<Env> {
 	// Synchronous SQL operations do not yield: limit checks and writes are atomic
 	// with respect to other requests in this Durable Object. IDs make retries safe.
 	confirmCorrection(owner: string, input: CorrectionInput): { status: number; error?: string } {
-		const all = this.corrections(owner);
-		const existing = all.find((c) => c.id === input.id);
+		// Write validation needs active terms and this retry, not historical review
+		// statistics. Include an inactive retry so undo cannot be resurrected.
+		const candidates = this.sql.exec(`SELECT id, original, term, reading, meaning, active
+			FROM corrections WHERE owner = ? AND (active = 1 OR id = ?)`, owner, input.id)
+			.toArray() as unknown as Array<CorrectionInput & { active: number }>;
+		const existing = candidates.find((c) => c.id === input.id);
 		if (existing) {
 			return Object.entries(input).every(([k, v]) => existing[k as keyof CorrectionInput] === v)
 				? { status: 200 } : { status: 409, error: "Request id already used for different content." };
 		}
-		try { checkCapacity(all.filter((c) => c.active), input); }
+		try { checkCapacity(candidates.filter((c) => c.active), input); }
 		catch (error) { return { status: 409, error: (error as Error).message }; }
 		this.sql.exec("INSERT INTO corrections (owner, id, original, term, reading, meaning, created) VALUES (?, ?, ?, ?, ?, ?, ?)", owner, input.id, input.original, input.term, input.reading, input.meaning, Date.now());
 		return { status: 201 };

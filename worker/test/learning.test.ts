@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { checkCapacity, correctionInput, uuid, type Correction } from "../src/learning.ts";
+import { checkCapacity, correctionInput, uuid } from "../src/learning.ts";
 import { deepgramQuery } from "../src/params.ts";
 
 const input = { id: "b59ab753-893c-428b-8075-88a35bc8b010", confirmed: true, original: "光洋ラボ", term: "紅葉ラボ", reading: "こうようラボ", meaning: "Koyo Lab — fictional" };
@@ -19,9 +19,9 @@ test("confirmation is explicit, Unicode retained and canonically normalized", ()
 test("hint capacity is bounded in UTF-8 and duplicates rejected", () => {
 	const c = correctionInput(input);
 	assert.doesNotThrow(() => checkCapacity([], c));
-	assert.throws(() => checkCapacity([{ ...c } as Correction], c));
-	assert.throws(() => checkCapacity(Array.from({ length: 16 }, (_, n) => ({ term: String(n) } as Correction)), c));
-	assert.throws(() => checkCapacity(Array.from({ length: 5 }, () => ({ term: "語".repeat(16) } as Correction)), c));
+	assert.throws(() => checkCapacity([{ term: c.term }], c));
+	assert.throws(() => checkCapacity(Array.from({ length: 16 }, (_, n) => ({ term: String(n) })), c));
+	assert.throws(() => checkCapacity(Array.from({ length: 5 }, () => ({ term: "語".repeat(16) })), c));
 });
 test("confirmed bilingual terms are hints only; client cannot undo usage redaction", () => {
 	const query = deepgramQuery(new URLSearchParams("redact_usage=false&model=other&language=en"), ["紅葉ラボ", "café"], "live");

@@ -339,6 +339,17 @@ try {
 	wrangler = startWorker(); await ready();
 	await fetch(`${base}/v1/audio/transcriptions`, { method: "POST", headers: auth, body: form });
 	assert.deepEqual((await (await learn()).json()).last_hint_receipt.terms, [], "next dictation after undo records zero confirmed hints");
+	// Retained inactive history must not consume active capacity or be resurrected
+	// when a confirmation write no longer reads the full decorated history.
+	const fresh = { ...correction, id: crypto.randomUUID() };
+	assert.equal((await learn("", "POST", fresh)).status, 201, "an undone spelling may be newly confirmed under a new ID");
+	assert.equal((await learn("", "POST", correction)).status, 200, "old retry still resolves to its inactive record");
+	assert.equal((await learn("", "POST", { ...correction, meaning: "changed retry" })).status, 409);
+	const withHistory = (await (await learn()).json()).corrections;
+	assert.equal(withHistory.find(c => c.id === correction.id).active, 0);
+	assert.equal(withHistory.find(c => c.id === correction.id).reviews, 2, "historical review evidence remains readable");
+	assert.equal(withHistory.find(c => c.id === fresh.id).active, 1);
+	assert.equal((await learn(`/${fresh.id}`, "PATCH", { active: false })).status, 200);
 	if (process.env.KOTOLEAF_BROWSER_PYTHON) {
 		await new Promise((resolve, reject) => {
 			const browser = spawn(process.env.KOTOLEAF_BROWSER_PYTHON, ["test/browser-learning.py", `${base}/learn`], { stdio: "inherit" });

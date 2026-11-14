@@ -41,7 +41,7 @@ export function correctionInput(value: any): CorrectionInput {
 	return { id: uuid(value.id), original: text("original", 100), term, reading: text("reading", 100), meaning: text("meaning", 200) };
 }
 
-export function checkCapacity(active: Correction[], input: CorrectionInput): void {
+export function checkCapacity(active: Array<Pick<CorrectionInput, "term">>, input: CorrectionInput): void {
 	if (active.some((c) => c.term === input.term)) throw new LearningError("This spelling is already active.", 409);
 	// A small bounded personal glossary, leaving room for the existing institutional
 	// glossary under Deepgram's 500-token limit. No tokenizer/library dependency.
